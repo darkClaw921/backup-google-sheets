@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, status, Response, Depends
 from fastapi.responses import FileResponse
 import io
@@ -18,16 +18,14 @@ router = APIRouter()
 @router.post("/", response_model=BackupResponse, status_code=status.HTTP_201_CREATED)
 async def create_backup(
     sheet_id: str, 
-    storage_type: str = "local",
-    storage_params: Optional[dict] = None,
+    storage_configs: List[Dict[str, Any]],
     db: Session = Depends(get_db)
 ):
     """
     Создание резервной копии таблицы
     
     - **sheet_id**: ID таблицы
-    - **storage_type**: Тип хранилища (local или bitrix)
-    - **storage_params**: Параметры хранилища (опционально, для bitrix можно указать folder_id)
+    - **storage_configs**: Список конфигураций хранилищ в формате [{"storage_type": str, "storage_params": dict}]
     """
     # Проверяем существование таблицы
     sheet = db.query(Sheet).filter(Sheet.id == sheet_id).first()
@@ -37,13 +35,19 @@ async def create_backup(
             detail="Таблица не найдена"
         )
     
+    # Проверяем наличие хотя бы одного хранилища
+    if not storage_configs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Необходимо указать хотя бы одно хранилище"
+        )
+    
     # Создаем резервную копию
     try:
         backup_result = backup_sheet(
             sheet.spreadsheet_id,
             sheet.name,
-            storage_type,
-            storage_params=storage_params,
+            storage_configs=storage_configs,
             db=db
         )
         
@@ -66,6 +70,7 @@ async def create_backup(
             status=backup_result.status,
             storage_type=backup_result.storage_type,
             backup_metadata=backup_result.backup_metadata,
+            storage_results=backup_result.storage_results,
             created_at=datetime.utcnow()
         )
         

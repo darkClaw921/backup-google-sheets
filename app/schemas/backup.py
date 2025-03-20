@@ -7,6 +7,7 @@ class BackupBase(BaseModel):
     sheet_id: str
     storage_type: str = "local"
     status: str = "processing"
+    storage_results: Optional[List[Dict[str, Any]]] = None
     
 class BackupCreate(BackupBase):
     """Схема для создания бэкапа"""
@@ -27,6 +28,7 @@ class BackupInDB(BackupBase):
     size: Optional[int] = None
     created_at: datetime
     metadata: Optional[Dict[str, Any]] = None
+    storage_results: Optional[List[Dict[str, Any]]] = None
     
     class Config:
         from_attributes = True

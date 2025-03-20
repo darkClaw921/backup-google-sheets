@@ -44,14 +44,14 @@
             <div class="modal-body">
                 <form id="addSheetForm">
                     <div class="mb-3">
-                        <label for="spreadsheetId" class="form-label">ID таблицы Google Sheets</label>
-                        <input type="text" class="form-control" id="spreadsheetId" required>
-                        <div class="form-text">ID таблицы можно найти в URL между /d/ и /edit</div>
+                        <label for="spreadsheetInput" class="form-label">ID или ссылки на таблицы Google Sheets</label>
+                        <textarea class="form-control" id="spreadsheetInput" rows="4" required></textarea>
+                        <div class="form-text">Введите ID таблицы или полную ссылку в формате https://docs.google.com/spreadsheets/d/ID_ТАБЛИЦЫ/edit. <br>Вы можете ввести несколько ссылок или ID, каждую с новой строки.</div>
                     </div>
                     <div class="mb-3">
                         <label for="sheetName" class="form-label">Название (опционально)</label>
                         <input type="text" class="form-control" id="sheetName">
-                        <div class="form-text">Если не указано, будет использовано оригинальное название таблицы</div>
+                        <div class="form-text">Если не указано, будет использовано оригинальное название таблицы. При добавлении нескольких таблиц это поле игнорируется.</div>
                     </div>
                     <div class="alert alert-info">
                         <strong>Важно:</strong> Убедитесь, что вы предоставили доступ сервисному аккаунту 
@@ -154,46 +154,105 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Функция добавления новой таблицы
     function addSheet() {
-        const spreadsheetId = document.getElementById('spreadsheetId').value.trim();
+        const input = document.getElementById('spreadsheetInput').value.trim();
         const sheetName = document.getElementById('sheetName').value.trim();
         
-        if (!spreadsheetId) {
-            alert('Введите ID таблицы');
+        if (!input) {
+            alert('Введите ID таблицы или ссылку');
             return;
         }
         
-        const payload = {
-            spreadsheet_id: spreadsheetId,
-            name: sheetName || spreadsheetId // если имя не указано, используем ID
-        };
+        // Разделяем ввод на строки для обработки нескольких ссылок
+        const lines = input.split('\n').filter(line => line.trim() !== '');
         
-        fetch('/api/v1/sheets/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Не удалось добавить таблицу');
+        // Создаем массив для хранения ID таблиц
+        const spreadsheetIds = [];
+        
+        // Извлекаем ID из всех строк
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            let id;
+            
+            // Проверяем, является ли строка URL
+            if (trimmedLine.includes('docs.google.com/spreadsheets/d/')) {
+                // Извлекаем ID из URL
+                const matches = trimmedLine.match(/\/d\/([a-zA-Z0-9-_]+)/);
+                if (matches && matches[1]) {
+                    id = matches[1];
+                } else {
+                    alert(`Не удалось извлечь ID из ссылки: ${trimmedLine}`);
+                    continue;
+                }
+            } else {
+                // Считаем, что это непосредственно ID
+                id = trimmedLine;
             }
-            return response.json();
-        })
-        .then(data => {
-            // Закрываем модальное окно
-            const modal = bootstrap.Modal.getInstance(document.getElementById('addSheetModal'));
-            modal.hide();
             
-            // Очищаем форму
-            document.getElementById('addSheetForm').reset();
+            spreadsheetIds.push(id);
+        }
+        
+        if (spreadsheetIds.length === 0) {
+            alert('Не удалось извлечь ни одного корректного ID таблицы');
+            return;
+        }
+        
+        // Счетчик для отслеживания успешных добавлений
+        let successCount = 0;
+        let errors = [];
+        let remainingRequests = spreadsheetIds.length;
+        
+        // Функция для обновления после завершения всех запросов
+        function updateAfterCompletion() {
+            remainingRequests--;
+            if (remainingRequests === 0) {
+                // Закрываем модальное окно
+                const modal = bootstrap.Modal.getInstance(document.getElementById('addSheetModal'));
+                modal.hide();
+                
+                // Очищаем форму
+                document.getElementById('addSheetForm').reset();
+                
+                // Обновляем список таблиц
+                loadSheets();
+                
+                // Показываем итоговое сообщение
+                if (errors.length > 0) {
+                    alert(`Добавлено ${successCount} из ${spreadsheetIds.length} таблиц.\nОшибки:\n${errors.join('\n')}`);
+                } else {
+                    alert(`Все ${successCount} таблиц успешно добавлены.`);
+                }
+            }
+        }
+        
+        // Обрабатываем каждый ID по отдельности
+        spreadsheetIds.forEach(id => {
+            const payload = {
+                spreadsheet_id: id,
+                name: spreadsheetIds.length === 1 ? (sheetName || id) : '' // используем имя только если одна таблица
+            };
             
-            // Обновляем список таблиц
-            loadSheets();
-        })
-        .catch(error => {
-            console.error('Ошибка при добавлении таблицы:', error);
-            alert('Не удалось добавить таблицу. Убедитесь, что ID корректный и сервисный аккаунт имеет доступ к таблице.');
+            fetch('/api/v1/sheets/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Не удалось добавить таблицу с ID: ${id}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                successCount++;
+                updateAfterCompletion();
+            })
+            .catch(error => {
+                console.error('Ошибка при добавлении таблицы:', error);
+                errors.push(`ID: ${id} - ${error.message}`);
+                updateAfterCompletion();
+            });
         });
     }
     

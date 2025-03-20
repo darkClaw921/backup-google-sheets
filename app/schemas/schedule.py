@@ -1,6 +1,12 @@
-from typing import Dict, Optional, Any, Literal
+from typing import Dict, Optional, Any, Literal, List
 from pydantic import BaseModel, Field
 from datetime import datetime
+
+
+class StorageConfig(BaseModel):
+    """Схема конфигурации хранилища"""
+    storage_type: str
+    storage_params: Optional[Dict[str, Any]] = None
 
 
 class ScheduleBase(BaseModel):
@@ -8,8 +14,7 @@ class ScheduleBase(BaseModel):
     sheet_id: str
     schedule_type: Literal["interval", "cron"]
     schedule_config: Dict[str, Any]
-    storage_type: str = "local"
-    storage_params: Optional[Dict[str, Any]] = None
+    storage_configs: List[StorageConfig]
     is_active: bool = True
 
 
@@ -23,8 +28,7 @@ class ScheduleUpdate(BaseModel):
     sheet_id: Optional[str] = None
     schedule_type: Optional[Literal["interval", "cron"]] = None
     schedule_config: Optional[Dict[str, Any]] = None
-    storage_type: Optional[str] = None
-    storage_params: Optional[Dict[str, Any]] = None
+    storage_configs: Optional[List[StorageConfig]] = None
     is_active: Optional[bool] = None
 
 
@@ -46,11 +50,18 @@ class ScheduleResponse(ScheduleBase):
                         "hours": 12
                     }
                 },
-                "storage_type": "local",
-                "storage_params": {
-                    "webhook_url": "https://domain.bitrix24.ru/rest/1/your-webhook-code/",
-                    "folder_id": "12345"
-                },
+                "storage_configs": [
+                    {
+                        "storage_type": "local",
+                        "storage_params": {}
+                    },
+                    {
+                        "storage_type": "bitrix",
+                        "storage_params": {
+                            "integration_id": "12345"
+                        }
+                    }
+                ],
                 "is_active": True,
                 "created_at": "2023-01-01T12:00:00",
                 "updated_at": "2023-01-02T14:30:00"

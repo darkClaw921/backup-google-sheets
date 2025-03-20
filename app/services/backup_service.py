@@ -17,9 +17,8 @@ logger = logging.getLogger(__name__)
 
 def backup_sheet(
     sheet_id: str, 
-    sheet_name: str, 
-    storage_type: str = "local", 
-    storage_params: Optional[Dict[str, Any]] = None,
+    sheet_name: str,
+    storage_configs: List[Dict[str, Any]],
     db: Optional[Any] = None
 ) -> Optional[Backup]:
     """
@@ -28,8 +27,7 @@ def backup_sheet(
     Args:
         sheet_id: ID таблицы Google Sheets
         sheet_name: Название таблицы
-        storage_type: Тип хранилища для сохранения бэкапа
-        storage_params: Параметры хранилища (например, webhook_url и folder_id для Битрикс24)
+        storage_configs: Список конфигураций хранилищ в формате [{"storage_type": str, "storage_params": dict}]
         db: Сессия базы данных (для получения настроек интеграции)
         
     Returns:
@@ -37,6 +35,7 @@ def backup_sheet(
     """
     try:
         logger.info(f"Создание резервной копии для таблицы {sheet_name} (ID: {sheet_id})")
+        logger.info(f"Полученные конфигурации хранилищ: {storage_configs}")
         
         # Прямой URL для экспорта таблицы в формате XLSX
         export_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
@@ -55,78 +54,132 @@ def backup_sheet(
         # Получаем бинарные данные файла
         file_data = io.BytesIO(response.content)
         
-        # Генерируем имя файла
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        filename = f"{sheet_id}_{timestamp}.xlsx"
+        # Генерируем имя файла с названием таблицы вместо ID
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Заменяем недопустимые символы в имени файла
+        safe_sheet_name = sheet_name.replace("/", "_").replace("\\", "_").replace(":", "_").replace("*", "_").replace("?", "_").replace("\"", "_").replace("<", "_").replace(">", "_").replace("|", "_")
+        filename = f"{safe_sheet_name}_{timestamp}.xlsx"
         
-        # Инициализируем хранилище в зависимости от типа
-        storage_instance = None
+        # Результаты сохранения в разные хранилища
+        storage_results = []
         
-        if storage_type == "local":
-            # Для локального хранилища используем стандартные параметры
-            storage_instance = get_storage(storage_type)
-        elif storage_type == "bitrix":
-            # Для Битрикс24 получаем настройки из интеграции, если не переданы напрямую
-            logger.info(f"Обработка хранилища Битрикс24, параметры: {storage_params}")
+        # Сохраняем файл в каждое выбранное хранилище
+        for config in storage_configs:
+            storage_type = config["storage_type"]
+            storage_params = config.get("storage_params", {})
             
-            # Проверяем наличие ID интеграции в параметрах
-            if db and storage_params and storage_params.get("integration_id") is not None:
-                integration_id = storage_params.get("integration_id")
-                logger.info(f"Получение интеграции по ID: {integration_id}")
-                
-                # Получаем настройки из базы данных по ID интеграции
-                integration = IntegrationService.get_integration_by_id(db, integration_id)
-                if not integration:
-                    logger.error(f"Не найдена интеграция Битрикс24 с ID {integration_id}")
-                    return None
-                
-                logger.info(f"Найдена интеграция: {integration}, тип: {integration.type}")
-                
-                if integration.type != "bitrix":
-                    logger.error(f"Найденная интеграция с ID {integration_id} имеет неверный тип: {integration.type}")
-                    return None
-                
-                logger.info(f"Использую настройки из интеграции: {integration.settings}")
-                storage_params = integration.settings
-            # Если есть webhook_url в storage_params, используем его напрямую
-            elif storage_params and storage_params.get("webhook_url"):
-                logger.info(f"Использую прямые параметры для Битрикс24: {storage_params}")
-            # Пытаемся получить настройки из базы данных
-            elif db:
-                logger.info("Получение настроек Битрикс24 из базы данных")
-                bitrix_settings = IntegrationService.get_bitrix_settings(db)
-                if not bitrix_settings:
-                    logger.error("Не настроена интеграция с Битрикс24")
-                    return None
-                
-                logger.info(f"Использую настройки Битрикс24 из базы данных: {bitrix_settings}")
-                storage_params = bitrix_settings
-            else:
-                logger.error("Не указаны параметры для хранилища Битрикс24 и нет доступа к базе данных")
-                return None
+            logger.info(f"Обработка хранилища {storage_type} с параметрами: {storage_params}")
             
-            # Проверяем наличие обязательного webhook_url
-            if not storage_params or "webhook_url" not in storage_params:
-                logger.error("Не указаны параметры webhook_url для хранилища Битрикс24")
-                return None
-            
-            # Создаем экземпляр хранилища Битрикс24 с параметрами
-            storage_instance = get_storage(
-                storage_type, 
-                webhook_url=storage_params["webhook_url"],
-                folder_id=storage_params.get("folder_id"),
-                base_path=storage_params.get("base_path", "backup_google_sheets")
-            )
-        else:
-            # Для других типов хранилищ
-            storage_instance = get_storage(storage_type, **(storage_params or {}))
+            try:
+                # Инициализируем хранилище в зависимости от типа
+                storage_instance = None
+                
+                if storage_type == "local":
+                    # Для локального хранилища используем стандартные параметры
+                    storage_instance = get_storage(storage_type)
+                    logger.info("Создан экземпляр локального хранилища")
+                elif storage_type == "bitrix":
+                    # Для Битрикс24 получаем настройки из интеграции, если не переданы напрямую
+                    logger.info(f"Обработка хранилища Битрикс24, начальные параметры: {storage_params}")
+                    
+                    bitrix_params = None
+                    
+                    # Проверяем наличие ID интеграции в параметрах
+                    if db and storage_params and storage_params.get("integration_id") is not None:
+                        integration_id = storage_params.get("integration_id")
+                        logger.info(f"Получение интеграции по ID: {integration_id}")
+                        
+                        # Получаем настройки из базы данных по ID интеграции
+                        integration = IntegrationService.get_integration_by_id(db, integration_id)
+                        if not integration:
+                            logger.error(f"Не найдена интеграция Битрикс24 с ID {integration_id}")
+                            continue
+                        
+                        logger.info(f"Найдена интеграция: {integration}, тип: {integration.type}")
+                        
+                        if integration.type != "bitrix":
+                            logger.error(f"Найденная интеграция с ID {integration_id} имеет неверный тип: {integration.type}")
+                            continue
+                        
+                        logger.info(f"Использую настройки из интеграции: {integration.settings}")
+                        bitrix_params = integration.settings
+                    
+                    # Если есть webhook_url в storage_params, используем его напрямую
+                    elif storage_params and storage_params.get("webhook_url"):
+                        logger.info(f"Использую прямые параметры для Битрикс24: {storage_params}")
+                        bitrix_params = storage_params
+                    
+                    # Пытаемся получить настройки из базы данных
+                    elif db:
+                        logger.info("Получение настроек Битрикс24 из базы данных")
+                        bitrix_settings = IntegrationService.get_bitrix_settings(db)
+                        if not bitrix_settings:
+                            logger.error("Не настроена интеграция с Битрикс24")
+                            continue
+                        
+                        logger.info(f"Использую настройки Битрикс24 из базы данных: {bitrix_settings}")
+                        bitrix_params = bitrix_settings
+                    else:
+                        logger.error("Не указаны параметры для хранилища Битрикс24 и нет доступа к базе данных")
+                        continue
+                    
+                    # Проверяем наличие обязательного webhook_url
+                    if not bitrix_params or "webhook_url" not in bitrix_params:
+                        logger.error("Не указаны параметры webhook_url для хранилища Битрикс24")
+                        logger.error(f"Полученные параметры: {bitrix_params}")
+                        continue
+                    
+                    # Создаем экземпляр хранилища Битрикс24 с параметрами
+                    storage_instance = get_storage(
+                        storage_type, 
+                        webhook_url=bitrix_params["webhook_url"],
+                        folder_id=bitrix_params.get("folder_id"),
+                        base_path=bitrix_params.get("base_path", "backup_google_sheets")
+                    )
+                    logger.info("Создан экземпляр хранилища Битрикс24")
+                else:
+                    # Для других типов хранилищ
+                    storage_instance = get_storage(storage_type, **(storage_params or {}))
+                    logger.info(f"Создан экземпляр хранилища типа {storage_type}")
+                
+                # Сбрасываем указатель в начало файла перед каждым сохранением
+                file_data.seek(0)
+                
+                # Сохраняем файл в текущее хранилище
+                file_path = storage_instance.save(file_data, filename)
+                
+                if not file_path:
+                    logger.error(f"Не удалось сохранить файл в хранилище типа {storage_type}")
+                    continue
+                
+                # Получаем информацию о файле из хранилища
+                file_info = None
+                try:
+                    file_info = storage_instance.get_file_info(file_path)
+                except Exception as e:
+                    logger.warning(f"Не удалось получить информацию о файле: {str(e)}")
+                
+                # Добавляем результат сохранения
+                storage_results.append({
+                    "storage_type": storage_type,
+                    "file_path": file_path,
+                    "size": file_info.get("size", 0) if file_info else 0,
+                    "storage_params": storage_params
+                })
+                
+                logger.info(f"Файл успешно сохранен в хранилище {storage_type}: {file_path}")
+                
+            except Exception as e:
+                logger.error(f"Ошибка при сохранении в хранилище {storage_type}: {str(e)}")
+                continue
         
-        # Сохраняем файл в выбранное хранилище
-        file_path = storage_instance.save(file_data, filename)
-        
-        if not file_path:
-            logger.error(f"Не удалось сохранить файл в хранилище типа {storage_type}")
+        # Если ни одно сохранение не удалось
+        if not storage_results:
+            logger.error("Не удалось сохранить файл ни в одно хранилище")
             return None
+        
+        # Используем информацию о первом успешном сохранении для основных полей
+        primary_storage = storage_results[0]
         
         # Пытаемся извлечь метаданные из Excel-файла
         metadata = {"sheet_name": sheet_name}
@@ -146,20 +199,9 @@ def backup_sheet(
         except Exception as e:
             logger.warning(f"Не удалось прочитать метаданные из файла: {str(e)}")
         
-        # Получаем информацию о файле из хранилища
-        file_info = None
-        try:
-            file_info = storage_instance.get_file_info(file_path)
-        except Exception as e:
-            logger.warning(f"Не удалось получить информацию о файле: {str(e)}")
-            
-        # Размер файла
-        file_size = file_info.get("size", 0) if file_info else 0
-        
-        # Создаем объект для возврата (не сохраняем в БД)
-        # Этот объект будет использоваться для создания записи в БД в эндпоинте
+        # Создаем объект для возврата
         class BackupResult:
-            def __init__(self, filename, file_path, size, status, storage_type, backup_metadata, storage_params=None):
+            def __init__(self, filename, file_path, size, status, storage_type, backup_metadata, storage_params=None, storage_results=None):
                 self.filename = filename
                 self.file_path = file_path
                 self.size = size
@@ -167,18 +209,20 @@ def backup_sheet(
                 self.storage_type = storage_type
                 self.storage_params = storage_params
                 self.backup_metadata = backup_metadata
+                self.storage_results = storage_results
         
         backup_result = BackupResult(
             filename=filename,
-            file_path=file_path,
-            size=file_size,
+            file_path=primary_storage["file_path"],
+            size=primary_storage["size"],
             status="completed",
-            storage_type=storage_type,
-            storage_params=storage_params,
-            backup_metadata=metadata
+            storage_type=primary_storage["storage_type"],
+            storage_params=primary_storage["storage_params"],
+            backup_metadata=metadata,
+            storage_results=storage_results
         )
         
-        logger.info(f"Бэкап успешно создан: {filename} в хранилище типа {storage_type}")
+        logger.info(f"Бэкап успешно создан: {filename} в {len(storage_results)} хранилищах")
         return backup_result
     
     except Exception as e:

@@ -333,18 +333,24 @@ document.addEventListener('DOMContentLoaded', function() {
                                     configText = parts.join(', ');
                                 }
                                 
-                                // Форматируем тип расписания
-                                const scheduleTypeText = schedule.schedule_type === 'interval' ? 'Интервальное' : 'Cron';
-                                
                                 // Форматируем статус
                                 const statusText = schedule.is_active ? 'Активно' : 'Не активно';
                                 const statusClass = schedule.is_active ? 'success' : 'danger';
+                                
+                                // Получаем информацию о хранилище
+                                let storageTypeText = 'Нет';
+                                if (schedule.storage_configs && schedule.storage_configs.length > 0) {
+                                    storageTypeText = schedule.storage_configs[0].storage_type;
+                                }
+                                
+                                // Форматируем тип расписания
+                                const scheduleTypeText = schedule.schedule_type === 'interval' ? 'Интервальное' : 'Cron';
                                 
                                 row.innerHTML = `
                                     <td>${sheetName}</td>
                                     <td>${scheduleTypeText}</td>
                                     <td>${configText}</td>
-                                    <td>${schedule.storage_type}</td>
+                                    <td>${storageTypeText}</td>
                                     <td><span class="status-${statusClass}">${statusText}</span></td>
                                     <td>
                                         <button class="btn btn-sm btn-primary me-1" onclick="editSchedule('${schedule.id}')">
@@ -427,12 +433,17 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('Финальные параметры хранилища:', storage_params);
         }
         
+        // Создаем массив с конфигурациями хранилищ
+        const storage_configs = [{
+            storage_type: storageType,
+            storage_params: storage_params
+        }];
+        
         return {
             sheet_id: document.getElementById('sheetId').value,
             schedule_type: scheduleType,
             schedule_config: scheduleConfig,
-            storage_type: storageType,
-            storage_params: storage_params,
+            storage_configs: storage_configs,
             is_active: document.getElementById('isActive').checked
         };
     }
@@ -550,8 +561,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('scheduleId').value = schedule.id;
                 document.getElementById('sheetId').value = schedule.sheet_id;
                 document.getElementById('scheduleType').value = schedule.schedule_type;
-                document.getElementById('storageType').value = schedule.storage_type;
                 document.getElementById('isActive').checked = schedule.is_active;
+                
+                // Получаем информацию о хранилище из массива storage_configs
+                if (schedule.storage_configs && schedule.storage_configs.length > 0) {
+                    const storageConfig = schedule.storage_configs[0];
+                    document.getElementById('storageType').value = storageConfig.storage_type;
+                    
+                    // Заполняем настройки Битрикс
+                    if (storageConfig.storage_type === 'bitrix' && storageConfig.storage_params) {
+                        loadBitrixIntegrations().then((integrations) => {
+                            // Поскольку у нас только одна интеграция, всегда используем её
+                            document.getElementById('bitrixIntegrationId').value = '1';
+                            
+                            // Уведомляем пользователя только в случае webhook_url для обратной совместимости
+                            if (storageConfig.storage_params.webhook_url && !storageConfig.storage_params.integration_id) {
+                                console.log('Старый формат настроек с webhook_url:', storageConfig.storage_params.webhook_url);
+                                alert('Внимание: это расписание использует устаревший формат настроек Битрикс24. Будет использована существующая интеграция.');
+                            }
+                        });
+                    }
+                }
                 
                 // Заполняем конфигурацию расписания
                 if (schedule.schedule_type === 'interval') {
@@ -570,20 +600,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.getElementById('cronDay').value = cron.day || '*';
                     document.getElementById('cronMonth').value = cron.month || '*';
                     document.getElementById('cronDayOfWeek').value = cron.day_of_week || '*';
-                }
-                
-                // Загружаем интеграции и выбираем нужную
-                if (schedule.storage_type === 'bitrix' && schedule.storage_params) {
-                    loadBitrixIntegrations().then((integrations) => {
-                        // Поскольку у нас только одна интеграция, всегда используем её
-                        document.getElementById('bitrixIntegrationId').value = '1';
-                        
-                        // Уведомляем пользователя только в случае webhook_url для обратной совместимости
-                        if (schedule.storage_params.webhook_url && !schedule.storage_params.integration_id) {
-                            console.log('Старый формат настроек с webhook_url:', schedule.storage_params.webhook_url);
-                            alert('Внимание: это расписание использует устаревший формат настроек Битрикс24. Будет использована существующая интеграция.');
-                        }
-                    });
                 }
                 
                 // Переключаем отображение конфигурации

@@ -47,27 +47,43 @@ class SchedulerService:
             return None
         
         # Функция для выполнения задачи
-        def backup_job():
+        def backup_job(schedule_id: str, db: Session):
+            """
+            Задача для создания бэкапа по расписанию
+            """
             try:
-                # Создаем новую сессию для работы с БД в фоновой задаче
-                session = next(get_db())
-                try:
-                    logger.info(f"Запуск бэкапа по расписанию {schedule.id} для таблицы {sheet.name} (ID: {sheet.id})")
-                    logger.info(f"Параметры расписания: storage_type={schedule.storage_type}, storage_params={schedule.storage_params}")
-                    
-                    create_backup(
-                        sheet_id=sheet.id,
-                        spreadsheet_id=sheet.spreadsheet_id,
-                        sheet_name=sheet.name,
-                        storage_type=schedule.storage_type,
-                        storage_params=schedule.storage_params,
-                        db=session
-                    )
-                    logger.info(f"Бэкап по расписанию {schedule.id} для таблицы {sheet.name} выполнен успешно")
-                finally:
-                    session.close()
+                logger.info(f"Запуск бэкапа по расписанию {schedule_id}")
+                
+                # Получаем расписание из БД
+                schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+                if not schedule:
+                    logger.error(f"Расписание {schedule_id} не найдено")
+                    return
+                
+                # Получаем информацию о таблице
+                sheet = db.query(Sheet).filter(Sheet.id == schedule.sheet_id).first()
+                if not sheet:
+                    logger.error(f"Таблица {schedule.sheet_id} не найдена")
+                    return
+                
+                # Создаем бэкап
+                backup = create_backup(
+                    sheet_id=sheet.id,
+                    spreadsheet_id=sheet.spreadsheet_id,
+                    sheet_name=sheet.name,
+                    storage_configs=schedule.storage_configs,
+                    db=db
+                )
+                
+                if not backup:
+                    logger.error(f"Не удалось создать бэкап для расписания {schedule_id}")
+                    return
+                
+                logger.info(f"Бэкап по расписанию {schedule_id} успешно создан")
+                
             except Exception as e:
-                logger.error(f"Ошибка при выполнении бэкапа по расписанию {schedule.id}: {str(e)}", exc_info=True)
+                logger.error(f"Ошибка при выполнении бэкапа по расписанию {schedule_id}: {str(e)}")
+                logger.exception(e)
         
         # Добавляем задачу в планировщик
         job = self.scheduler.add_job(
@@ -75,7 +91,8 @@ class SchedulerService:
             trigger=trigger,
             id=f"backup_{schedule.id}",
             replace_existing=True,
-            misfire_grace_time=3600  # 1 час
+            misfire_grace_time=3600,  # 1 час
+            args=[schedule.id, db]
         )
         
         logger.info(f"Добавлено расписание {schedule.id} для таблицы {sheet.name}")

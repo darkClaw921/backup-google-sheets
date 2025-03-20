@@ -20,6 +20,7 @@ class Backup(Base):
     status = Column(String, nullable=False)
     storage_type = Column(String, nullable=False, default="local")
     storage_params = Column(JSON, nullable=True)
+    storage_results = Column(JSON, nullable=True)
     backup_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime, nullable=False)
 

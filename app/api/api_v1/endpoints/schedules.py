@@ -25,13 +25,19 @@ async def create_schedule(
     if not sheet:
         raise HTTPException(status_code=404, detail="Таблица не найдена")
     
+    # Проверяем наличие хотя бы одного хранилища
+    if not schedule_data.storage_configs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Необходимо указать хотя бы одно хранилище"
+        )
+    
     # Создаем объект расписания
     schedule = Schedule(
         sheet_id=schedule_data.sheet_id,
         schedule_type=schedule_data.schedule_type,
         schedule_config=schedule_data.schedule_config,
-        storage_type=schedule_data.storage_type,
-        storage_params=schedule_data.storage_params,
+        storage_configs=[config.dict() for config in schedule_data.storage_configs],
         is_active=schedule_data.is_active,
         created_at=datetime.utcnow()
     )
@@ -103,11 +109,13 @@ def update_schedule(
     if schedule_data.schedule_config is not None:
         schedule.schedule_config = schedule_data.schedule_config
     
-    if schedule_data.storage_type is not None:
-        schedule.storage_type = schedule_data.storage_type
-    
-    if schedule_data.storage_params is not None:
-        schedule.storage_params = schedule_data.storage_params
+    if schedule_data.storage_configs is not None:
+        if not schedule_data.storage_configs:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Необходимо указать хотя бы одно хранилище"
+            )
+        schedule.storage_configs = [config.dict() for config in schedule_data.storage_configs]
     
     if schedule_data.is_active is not None:
         schedule.is_active = schedule_data.is_active

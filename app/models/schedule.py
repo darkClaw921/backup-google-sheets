@@ -16,11 +16,13 @@ class Schedule(Base):
     sheet_id = Column(String, ForeignKey("sheets.id"), nullable=False)
     schedule_type = Column(String, nullable=False)  # "interval" или "cron"
     schedule_config = Column(JSON, nullable=False)
-    storage_type = Column(String, nullable=False, default="local")
-    storage_params = Column(JSON, nullable=True)  # Параметры для хранилища (webhook_url, folder_id и т.д.)
+    storage_configs = Column(JSON, nullable=False)  # Список конфигураций хранилищ
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, nullable=False)
     updated_at = Column(DateTime, nullable=True)
 
     # Отношения
-    sheet = relationship("Sheet", back_populates="schedules") 
+    sheet = relationship("Sheet", back_populates="schedules")
+
+    def __repr__(self):
+        return f"<Schedule(id={self.id}, sheet_id={self.sheet_id}, type={self.schedule_type})>" 
