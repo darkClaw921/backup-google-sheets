@@ -1,0 +1,334 @@
+{% extends "base.html" %}
+
+{% block title %}Управление бэкапами{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Управление бэкапами</h1>
+    <div>
+        <select id="sheetFilter" class="form-select d-inline-block me-2" style="width: auto;">
+            <option value="">Все таблицы</option>
+            <!-- Список таблиц будет загружен с помощью JavaScript -->
+        </select>
+        <button id="refreshBtn" class="btn btn-outline-primary">
+            <i class="bi bi-arrow-clockwise"></i> Обновить
+        </button>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div id="backupsTable" class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Таблица</th>
+                        <th>Дата создания</th>
+                        <th>Размер</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="backupsList">
+                    <!-- Данные будут загружены с помощью JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        <div id="noBackups" class="text-center py-4 d-none">
+            <p class="text-muted">Нет созданных бэкапов. Добавьте таблицу и создайте первый бэкап.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для просмотра деталей бэкапа -->
+<div class="modal fade" id="backupDetailsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Детали бэкапа</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <dl class="row">
+                    <dt class="col-sm-4">ID бэкапа:</dt>
+                    <dd class="col-sm-8" id="detailsId"></dd>
+                    
+                    <dt class="col-sm-4">Таблица:</dt>
+                    <dd class="col-sm-8" id="detailsSheetName"></dd>
+                    
+                    <dt class="col-sm-4">Дата создания:</dt>
+                    <dd class="col-sm-8" id="detailsCreatedAt"></dd>
+                    
+                    <dt class="col-sm-4">Размер:</dt>
+                    <dd class="col-sm-8" id="detailsSize"></dd>
+                    
+                    <dt class="col-sm-4">Статус:</dt>
+                    <dd class="col-sm-8" id="detailsStatus"></dd>
+                    
+                    <dt class="col-sm-4">Хранилище:</dt>
+                    <dd class="col-sm-8" id="detailsStorageType"></dd>
+                    
+                    <dt class="col-sm-4">Путь:</dt>
+                    <dd class="col-sm-8" id="detailsStoragePath"></dd>
+                </dl>
+                
+                <div id="detailsMetadata" class="mt-3">
+                    <h6>Метаданные:</h6>
+                    <pre class="bg-light p-2" style="max-height: 200px; overflow-y: auto;"></pre>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                <a href="#" id="downloadBackupLink" class="btn btn-primary">Скачать</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для подтверждения удаления -->
+<div class="modal fade" id="deleteBackupModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Подтверждение удаления</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить этот бэкап?</p>
+                <p class="text-danger">Это действие нельзя отменить.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBackup">Удалить</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Текущий фильтр по таблице
+    let currentSheetFilter = '';
+    
+    // Загрузка списка таблиц для фильтра
+    loadSheets();
+    
+    // Загрузка списка бэкапов
+    loadBackups();
+    
+    // Обработчик для кнопки обновления
+    document.getElementById('refreshBtn').addEventListener('click', loadBackups);
+    
+    // Обработчик для фильтра по таблицам
+    document.getElementById('sheetFilter').addEventListener('change', function() {
+        currentSheetFilter = this.value;
+        loadBackups();
+    });
+    
+    // Функция загрузки списка таблиц
+    function loadSheets() {
+        fetch('/api/v1/sheets/')
+            .then(response => response.json())
+            .then(data => {
+                const sheetFilter = document.getElementById('sheetFilter');
+                
+                // Сохраняем текущее значение фильтра
+                const currentValue = sheetFilter.value;
+                
+                // Очищаем текущий список, оставляя только первый пункт
+                while (sheetFilter.options.length > 1) {
+                    sheetFilter.remove(1);
+                }
+                
+                // Добавляем таблицы в список
+                data.forEach(sheet => {
+                    const option = document.createElement('option');
+                    option.value = sheet.id;
+                    option.textContent = sheet.name;
+                    sheetFilter.appendChild(option);
+                });
+                
+                // Восстанавливаем значение фильтра, если оно было
+                if (currentValue) {
+                    sheetFilter.value = currentValue;
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при загрузке таблиц:', error);
+            });
+    }
+    
+    // Функция загрузки списка бэкапов
+    function loadBackups() {
+        // Показываем спиннер
+        App.showSpinner(true);
+        
+        // Формируем URL с фильтром, если он задан
+        let url = '/api/v1/backups/';
+        if (currentSheetFilter) {
+            url += `?sheet_id=${currentSheetFilter}`;
+        }
+        
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                console.log('Полученные данные бэкапов:', data);
+                const tableBody = document.getElementById('backupsList');
+                const noBackups = document.getElementById('noBackups');
+                const backupsTable = document.getElementById('backupsTable');
+                
+                // Очищаем текущий список
+                tableBody.innerHTML = '';
+                
+                if (data.length === 0) {
+                    noBackups.classList.remove('d-none');
+                    backupsTable.classList.add('d-none');
+                } else {
+                    noBackups.classList.add('d-none');
+                    backupsTable.classList.remove('d-none');
+                    
+                    // Загружаем информацию о таблицах для отображения имен
+                    fetch('/api/v1/sheets/')
+                        .then(response => response.json())
+                        .then(sheets => {
+                            // Создаем словарь для быстрого доступа
+                            const sheetsMap = {};
+                            sheets.forEach(sheet => {
+                                sheetsMap[sheet.id] = sheet.name;
+                            });
+                            
+                            // Добавляем бэкапы в список
+                            data.forEach(backup => {
+                                const row = document.createElement('tr');
+                                
+                                // Получаем имя таблицы
+                                const sheetName = sheetsMap[backup.sheet_id] || backup.sheet_id;
+                                
+                                // Форматируем дату создания
+                                const createdAt = App.formatDateTime(backup.created_at);
+                                
+                                // Форматируем размер
+                                const size = App.formatFileSize(backup.size);
+                                
+                                // Форматируем статус
+                                const statusClass = backup.status === 'completed' ? 'success' : 'danger';
+                                const statusText = backup.status === 'completed' ? 'Успешно' : 'Ошибка';
+                                
+                                row.innerHTML = `
+                                    <td>${sheetName}</td>
+                                    <td>${createdAt}</td>
+                                    <td>${size}</td>
+                                    <td><span class="status-${statusClass}">${statusText}</span></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-info me-1" onclick="showBackupDetails('${backup.id}')">
+                                            <i class="bi bi-info-circle"></i>
+                                        </button>
+                                        <a href="/api/v1/backups/${backup.id}/download" class="btn btn-sm btn-success me-1" download>
+                                            <i class="bi bi-download"></i>
+                                        </a>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteBackup('${backup.id}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                `;
+                                
+                                tableBody.appendChild(row);
+                            });
+                        });
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при загрузке бэкапов:', error);
+                alert('Не удалось загрузить список бэкапов');
+            })
+            .finally(() => {
+                // Скрываем спиннер
+                App.showSpinner(false);
+            });
+    }
+    
+    // Глобальные функции для работы с бэкапами
+    window.showBackupDetails = function(backupId) {
+        fetch(`/api/v1/backups/${backupId}`)
+            .then(response => response.json())
+            .then(backup => {
+                // Заполняем модальное окно данными
+                document.getElementById('detailsId').textContent = backup.id;
+                
+                // Получаем имя таблицы
+                fetch(`/api/v1/sheets/${backup.sheet_id}`)
+                    .then(response => response.json())
+                    .then(sheet => {
+                        document.getElementById('detailsSheetName').textContent = sheet.name;
+                    })
+                    .catch(() => {
+                        document.getElementById('detailsSheetName').textContent = backup.sheet_id;
+                    });
+                
+                document.getElementById('detailsCreatedAt').textContent = App.formatDateTime(backup.created_at);
+                document.getElementById('detailsSize').textContent = App.formatFileSize(backup.size);
+                document.getElementById('detailsStatus').textContent = backup.status === 'completed' ? 'Успешно' : 'Ошибка';
+                document.getElementById('detailsStorageType').textContent = backup.storage_type;
+                document.getElementById('detailsStoragePath').textContent = backup.storage_path || backup.file_path;
+                
+                // Метаданные
+                const metadataContainer = document.querySelector('#detailsMetadata pre');
+                if (backup.metadata || backup.backup_metadata) {
+                    metadataContainer.textContent = JSON.stringify(backup.metadata || backup.backup_metadata, null, 2);
+                    document.getElementById('detailsMetadata').style.display = 'block';
+                } else {
+                    document.getElementById('detailsMetadata').style.display = 'none';
+                }
+                
+                // Ссылка на скачивание
+                document.getElementById('downloadBackupLink').href = `/api/v1/backups/${backup.id}/download`;
+                
+                // Показываем модальное окно
+                const modal = new bootstrap.Modal(document.getElementById('backupDetailsModal'));
+                modal.show();
+            })
+            .catch(error => {
+                console.error('Ошибка при получении данных бэкапа:', error);
+                alert('Не удалось получить информацию о бэкапе');
+            });
+    };
+    
+    window.deleteBackup = function(backupId) {
+        // Показываем модальное окно для подтверждения
+        const modal = new bootstrap.Modal(document.getElementById('deleteBackupModal'));
+        modal.show();
+        
+        // Устанавливаем обработчик для кнопки подтверждения
+        document.getElementById('confirmDeleteBackup').onclick = function() {
+            // Показываем спиннер
+            App.showSpinner(true);
+            
+            fetch(`/api/v1/backups/${backupId}`, {
+                method: 'DELETE'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Не удалось удалить бэкап');
+                }
+                
+                // Закрываем модальное окно
+                modal.hide();
+                
+                // Обновляем список бэкапов
+                loadBackups();
+            })
+            .catch(error => {
+                console.error('Ошибка при удалении бэкапа:', error);
+                alert('Не удалось удалить бэкап');
+            })
+            .finally(() => {
+                // Скрываем спиннер
+                App.showSpinner(false);
+            });
+        };
+    };
+});
+</script>
+{% endblock %} 

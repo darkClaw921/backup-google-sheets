@@ -1,0 +1,654 @@
+{% extends "base.html" %}
+
+{% block title %}Управление расписаниями{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Управление расписаниями</h1>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addScheduleModal">
+        <i class="bi bi-plus-circle me-1"></i> Добавить расписание
+    </button>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div id="schedulesTable" class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Таблица</th>
+                        <th>Тип расписания</th>
+                        <th>Конфигурация</th>
+                        <th>Хранилище</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="schedulesList">
+                    <!-- Данные будут загружены с помощью JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        <div id="noSchedules" class="text-center py-4 d-none">
+            <p class="text-muted">Нет добавленных расписаний. Добавьте первое расписание, нажав кнопку "Добавить расписание".</p>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для добавления/редактирования расписания -->
+<div class="modal fade" id="addScheduleModal" tabindex="-1" aria-labelledby="addScheduleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addScheduleModalLabel">Добавить расписание</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="scheduleForm">
+                    <input type="hidden" id="scheduleId" value="">
+                    
+                    <div class="mb-3">
+                        <label for="sheetId" class="form-label">Таблица *</label>
+                        <select class="form-select" id="sheetId" required>
+                            <option value="">Выберите таблицу</option>
+                            <!-- Список таблиц будет загружен с помощью JavaScript -->
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="scheduleType" class="form-label">Тип расписания *</label>
+                        <select class="form-select" id="scheduleType" required>
+                            <option value="interval">Интервальное (каждые N минут/часов/дней)</option>
+                            <option value="cron">Cron (по дням недели, времени и т.д.)</option>
+                        </select>
+                    </div>
+                    
+                    <div id="intervalConfig" class="mb-3">
+                        <div class="row g-3 align-items-center">
+                            <div class="col-auto">
+                                <label class="form-label">Выполнять каждые</label>
+                            </div>
+                            <div class="col-auto">
+                                <input type="number" id="intervalValue" class="form-control" min="1" value="1">
+                            </div>
+                            <div class="col-auto">
+                                <select id="intervalUnit" class="form-select">
+                                    <option value="minutes">минут</option>
+                                    <option value="hours" selected>часов</option>
+                                    <option value="days">дней</option>
+                                    <option value="weeks">недель</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="cronConfig" class="mb-3 d-none">
+                        <div class="row mb-2">
+                            <div class="col-md-6">
+                                <label for="cronMinute" class="form-label">Минута (0-59)</label>
+                                <input type="text" id="cronMinute" class="form-control" placeholder="*">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="cronHour" class="form-label">Час (0-23)</label>
+                                <input type="text" id="cronHour" class="form-control" placeholder="*">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label for="cronDay" class="form-label">День месяца (1-31)</label>
+                                <input type="text" id="cronDay" class="form-control" placeholder="*">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="cronMonth" class="form-label">Месяц (1-12)</label>
+                                <input type="text" id="cronMonth" class="form-control" placeholder="*">
+                            </div>
+                            <div class="col-md-4">
+                                <label for="cronDayOfWeek" class="form-label">День недели (0-6)</label>
+                                <input type="text" id="cronDayOfWeek" class="form-control" placeholder="*">
+                            </div>
+                        </div>
+                        <small class="form-text text-muted mt-2">
+                            Используйте формат cron: * - любое значение, 5 - конкретное значение, 1-5 - диапазон, */15 - каждые 15 единиц
+                        </small>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="storageType" class="form-label">Тип хранилища</label>
+                        <select class="form-select" id="storageType" onchange="toggleStorageSettings()">
+                            <option value="local">Локальное хранилище</option>
+                            <option value="bitrix">Битрикс24 Диск</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Настройки Битрикс24 -->
+                    <div id="bitrixSettings" class="mb-3 d-none">
+                        <div class="card">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">Интеграция с Битрикс24</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label for="bitrixIntegrationId" class="form-label">Выберите интеграцию *</label>
+                                    <select class="form-select" id="bitrixIntegrationId">
+                                        <option value="">-- Загрузка... --</option>
+                                        <!-- Список интеграций будет загружен с помощью JavaScript -->
+                                    </select>
+                                    <small class="form-text text-muted">
+                                        Выберите ранее созданную интеграцию с Битрикс24. Если интеграция не настроена, перейдите в раздел <a href="/integrations" target="_blank">Интеграции</a>
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="isActive" checked>
+                        <label class="form-check-label" for="isActive">Расписание активно</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="saveScheduleBtn">Сохранить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для подтверждения удаления -->
+<div class="modal fade" id="deleteScheduleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Подтверждение удаления</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить это расписание?</p>
+                <p class="text-danger">После удаления бэкапы больше не будут создаваться автоматически по этому расписанию.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteSchedule">Удалить</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Загрузка данных при загрузке страницы
+    loadSheets();
+    loadSchedules();
+    loadBitrixIntegrations();
+    
+    // Обработчики событий для формы добавления/редактирования расписания
+    document.getElementById('scheduleType').addEventListener('change', toggleScheduleConfig);
+    document.getElementById('saveScheduleBtn').addEventListener('click', saveSchedule);
+    
+    // Загрузка сохраненных интеграций с Битрикс24 (упрощенная версия)
+    function loadBitrixIntegrations() {
+        console.log('Загрузка интеграций Битрикс24');
+        
+        // Упрощенная реализация с одной интеграцией
+        const selectElement = document.getElementById('bitrixIntegrationId');
+        
+        // Очистка списка
+        selectElement.innerHTML = '';
+        
+        // Создаем опцию для Битрикс24
+        const option = document.createElement('option');
+        option.value = '1';  // ID интеграции в базе данных
+        option.textContent = 'Битрикс24';
+        selectElement.appendChild(option);
+        
+        // Сразу устанавливаем выбранное значение
+        selectElement.value = '1';
+        
+        // Возвращаем массив с интеграцией для совместимости
+        const bitrixIntegrations = [{ id: 1, type: 'bitrix', name: 'Битрикс24' }];
+        return Promise.resolve(bitrixIntegrations);
+    }
+    
+    // Функция переключения настроек хранилища
+    window.toggleStorageSettings = function() {
+        const storageType = document.getElementById('storageType').value;
+        const bitrixSettings = document.getElementById('bitrixSettings');
+        
+        if (storageType === 'bitrix') {
+            bitrixSettings.classList.remove('d-none');
+        } else {
+            bitrixSettings.classList.add('d-none');
+        }
+    };
+    
+    // Переключение между типами расписаний
+    function toggleScheduleConfig() {
+        const scheduleType = document.getElementById('scheduleType').value;
+        
+        if (scheduleType === 'interval') {
+            document.getElementById('intervalConfig').classList.remove('d-none');
+            document.getElementById('cronConfig').classList.add('d-none');
+        } else if (scheduleType === 'cron') {
+            document.getElementById('intervalConfig').classList.add('d-none');
+            document.getElementById('cronConfig').classList.remove('d-none');
+        }
+    }
+    
+    // Функция загрузки списка таблиц
+    function loadSheets() {
+        fetch('/api/v1/sheets/')
+            .then(response => response.json())
+            .then(data => {
+                const sheetSelect = document.getElementById('sheetId');
+                
+                // Очищаем текущий список, оставляя только первый пункт
+                while (sheetSelect.options.length > 1) {
+                    sheetSelect.remove(1);
+                }
+                
+                // Добавляем таблицы в список
+                data.forEach(sheet => {
+                    const option = document.createElement('option');
+                    option.value = sheet.id;
+                    option.textContent = sheet.name;
+                    sheetSelect.appendChild(option);
+                });
+            })
+            .catch(error => {
+                console.error('Ошибка при загрузке таблиц:', error);
+                alert('Не удалось загрузить список таблиц');
+            });
+    }
+    
+    // Функция загрузки списка расписаний
+    function loadSchedules() {
+        // Показываем спиннер
+        App.showSpinner(true);
+        
+        fetch('/api/v1/schedules/')
+            .then(response => response.json())
+            .then(data => {
+                const tableBody = document.getElementById('schedulesList');
+                const noSchedules = document.getElementById('noSchedules');
+                const schedulesTable = document.getElementById('schedulesTable');
+                
+                // Очищаем текущий список
+                tableBody.innerHTML = '';
+                
+                if (data.length === 0) {
+                    noSchedules.classList.remove('d-none');
+                    schedulesTable.classList.add('d-none');
+                } else {
+                    noSchedules.classList.add('d-none');
+                    schedulesTable.classList.remove('d-none');
+                    
+                    // Загружаем информацию о таблицах для отображения имен
+                    fetch('/api/v1/sheets/')
+                        .then(response => response.json())
+                        .then(sheets => {
+                            // Создаем словарь для быстрого доступа
+                            const sheetsMap = {};
+                            sheets.forEach(sheet => {
+                                sheetsMap[sheet.id] = sheet.name;
+                            });
+                            
+                            // Добавляем расписания в список
+                            data.forEach(schedule => {
+                                const row = document.createElement('tr');
+                                
+                                // Получаем имя таблицы
+                                const sheetName = sheetsMap[schedule.sheet_id] || schedule.sheet_id;
+                                
+                                // Форматируем конфигурацию расписания
+                                let configText = '';
+                                if (schedule.schedule_type === 'interval') {
+                                    const interval = schedule.schedule_config.interval;
+                                    const unitMap = {
+                                        seconds: 'секунд',
+                                        minutes: 'минут',
+                                        hours: 'часов',
+                                        days: 'дней',
+                                        weeks: 'недель'
+                                    };
+                                    
+                                    for (const [unit, value] of Object.entries(interval)) {
+                                        if (value) {
+                                            configText = `Каждые ${value} ${unitMap[unit] || unit}`;
+                                            break;
+                                        }
+                                    }
+                                } else if (schedule.schedule_type === 'cron') {
+                                    const cron = schedule.schedule_config.cron;
+                                    const parts = [];
+                                    
+                                    if (cron.minute !== undefined) parts.push(`минута: ${cron.minute}`);
+                                    if (cron.hour !== undefined) parts.push(`час: ${cron.hour}`);
+                                    if (cron.day !== undefined) parts.push(`день: ${cron.day}`);
+                                    if (cron.month !== undefined) parts.push(`месяц: ${cron.month}`);
+                                    if (cron.day_of_week !== undefined) parts.push(`день недели: ${cron.day_of_week}`);
+                                    
+                                    configText = parts.join(', ');
+                                }
+                                
+                                // Форматируем тип расписания
+                                const scheduleTypeText = schedule.schedule_type === 'interval' ? 'Интервальное' : 'Cron';
+                                
+                                // Форматируем статус
+                                const statusText = schedule.is_active ? 'Активно' : 'Не активно';
+                                const statusClass = schedule.is_active ? 'success' : 'danger';
+                                
+                                row.innerHTML = `
+                                    <td>${sheetName}</td>
+                                    <td>${scheduleTypeText}</td>
+                                    <td>${configText}</td>
+                                    <td>${schedule.storage_type}</td>
+                                    <td><span class="status-${statusClass}">${statusText}</span></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-primary me-1" onclick="editSchedule('${schedule.id}')">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteSchedule('${schedule.id}')">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </td>
+                                `;
+                                
+                                tableBody.appendChild(row);
+                            });
+                        });
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при загрузке расписаний:', error);
+                alert('Не удалось загрузить список расписаний');
+            })
+            .finally(() => {
+                // Скрываем спиннер
+                App.showSpinner(false);
+            });
+    }
+    
+    // Функция для сбора данных формы расписания
+    function getScheduleFormData() {
+        const scheduleType = document.getElementById('scheduleType').value;
+        const storageType = document.getElementById('storageType').value;
+        let scheduleConfig = {};
+        let storage_params = {};
+        
+        if (scheduleType === 'interval') {
+            const intervalValue = parseInt(document.getElementById('intervalValue').value);
+            const intervalUnit = document.getElementById('intervalUnit').value;
+            
+            scheduleConfig = {
+                interval: {
+                    [intervalUnit]: intervalValue
+                }
+            };
+        } else if (scheduleType === 'cron') {
+            const cronMinute = document.getElementById('cronMinute').value.trim() || '*';
+            const cronHour = document.getElementById('cronHour').value.trim() || '*';
+            const cronDay = document.getElementById('cronDay').value.trim() || '*';
+            const cronMonth = document.getElementById('cronMonth').value.trim() || '*';
+            const cronDayOfWeek = document.getElementById('cronDayOfWeek').value.trim() || '*';
+            
+            scheduleConfig = {
+                cron: {
+                    minute: cronMinute,
+                    hour: cronHour,
+                    day: cronDay,
+                    month: cronMonth,
+                    day_of_week: cronDayOfWeek
+                }
+            };
+        }
+        
+        // Собираем параметры хранилища
+        if (storageType === 'bitrix') {
+            // Получаем ID интеграции
+            const integrationId = document.getElementById('bitrixIntegrationId').value;
+            console.log('Использование ID интеграции для Битрикс:', integrationId);
+            
+            // Проверяем, что ID интеграции задан
+            if (!integrationId) {
+                console.error('ID интеграции Битрикс24 не задан!');
+            }
+            
+            // Преобразуем ID в число, если это строка с числом
+            const numericId = parseInt(integrationId, 10);
+            
+            // Убеждаемся, что ID интеграции является числом
+            storage_params = {
+                integration_id: isNaN(numericId) ? integrationId : numericId
+            };
+            
+            console.log('Финальные параметры хранилища:', storage_params);
+        }
+        
+        return {
+            sheet_id: document.getElementById('sheetId').value,
+            schedule_type: scheduleType,
+            schedule_config: scheduleConfig,
+            storage_type: storageType,
+            storage_params: storage_params,
+            is_active: document.getElementById('isActive').checked
+        };
+    }
+    
+    // Функция для валидации формы расписания
+    function validateScheduleForm() {
+        const sheetId = document.getElementById('sheetId').value;
+        const scheduleType = document.getElementById('scheduleType').value;
+        const storageType = document.getElementById('storageType').value;
+        
+        if (!sheetId) {
+            alert('Выберите таблицу');
+            return false;
+        }
+        
+        if (scheduleType === 'interval') {
+            const intervalValue = parseInt(document.getElementById('intervalValue').value);
+            if (isNaN(intervalValue) || intervalValue < 1) {
+                alert('Введите корректное значение интервала (число больше 0)');
+                return false;
+            }
+        }
+        
+        if (storageType === 'bitrix') {
+            const integrationId = document.getElementById('bitrixIntegrationId').value;
+            if (!integrationId) {
+                alert('Выберите интеграцию с Битрикс24');
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
+    // Функция сохранения расписания
+    function saveSchedule() {
+        if (!validateScheduleForm()) {
+            return;
+        }
+        
+        // Получаем данные формы
+        const formData = getScheduleFormData();
+        
+        // Получаем ID расписания (если это редактирование)
+        const scheduleId = document.getElementById('scheduleId').value;
+        
+        // Определяем URL и метод запроса
+        const url = scheduleId 
+            ? `/api/v1/schedules/${scheduleId}` 
+            : '/api/v1/schedules/';
+        const method = scheduleId ? 'PUT' : 'POST';
+        
+        // Показываем спиннер
+        App.showSpinner(true);
+        
+        // Отправляем запрос
+        fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Не удалось сохранить расписание');
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Закрываем модальное окно
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addScheduleModal'));
+            modal.hide();
+            
+            // Очищаем форму
+            resetScheduleForm();
+            
+            // Обновляем список расписаний
+            loadSchedules();
+        })
+        .catch(error => {
+            console.error('Ошибка при сохранении расписания:', error);
+            alert('Не удалось сохранить расписание');
+        })
+        .finally(() => {
+            // Скрываем спиннер
+            App.showSpinner(false);
+        });
+    }
+    
+    // Функция сброса формы расписания
+    function resetScheduleForm() {
+        document.getElementById('scheduleForm').reset();
+        document.getElementById('scheduleId').value = '';
+        document.getElementById('addScheduleModalLabel').textContent = 'Добавить расписание';
+        toggleScheduleConfig();
+        toggleStorageSettings();
+        
+        // Очищаем список папок Битрикс24
+        const folderSelect = document.getElementById('bitrixIntegrationId');
+        while (folderSelect.options.length > 1) {
+            folderSelect.remove(1);
+        }
+    }
+    
+    // Глобальные функции для работы с расписаниями
+    window.editSchedule = function(scheduleId) {
+        // Показываем спиннер
+        App.showSpinner(true);
+        
+        fetch(`/api/v1/schedules/${scheduleId}`)
+            .then(response => response.json())
+            .then(schedule => {
+                // Заполняем форму данными
+                document.getElementById('scheduleId').value = schedule.id;
+                document.getElementById('sheetId').value = schedule.sheet_id;
+                document.getElementById('scheduleType').value = schedule.schedule_type;
+                document.getElementById('storageType').value = schedule.storage_type;
+                document.getElementById('isActive').checked = schedule.is_active;
+                
+                // Заполняем конфигурацию расписания
+                if (schedule.schedule_type === 'interval') {
+                    const interval = schedule.schedule_config.interval;
+                    for (const [unit, value] of Object.entries(interval)) {
+                        if (value) {
+                            document.getElementById('intervalValue').value = value;
+                            document.getElementById('intervalUnit').value = unit;
+                            break;
+                        }
+                    }
+                } else if (schedule.schedule_type === 'cron') {
+                    const cron = schedule.schedule_config.cron;
+                    document.getElementById('cronMinute').value = cron.minute || '*';
+                    document.getElementById('cronHour').value = cron.hour || '*';
+                    document.getElementById('cronDay').value = cron.day || '*';
+                    document.getElementById('cronMonth').value = cron.month || '*';
+                    document.getElementById('cronDayOfWeek').value = cron.day_of_week || '*';
+                }
+                
+                // Загружаем интеграции и выбираем нужную
+                if (schedule.storage_type === 'bitrix' && schedule.storage_params) {
+                    loadBitrixIntegrations().then((integrations) => {
+                        // Поскольку у нас только одна интеграция, всегда используем её
+                        document.getElementById('bitrixIntegrationId').value = '1';
+                        
+                        // Уведомляем пользователя только в случае webhook_url для обратной совместимости
+                        if (schedule.storage_params.webhook_url && !schedule.storage_params.integration_id) {
+                            console.log('Старый формат настроек с webhook_url:', schedule.storage_params.webhook_url);
+                            alert('Внимание: это расписание использует устаревший формат настроек Битрикс24. Будет использована существующая интеграция.');
+                        }
+                    });
+                }
+                
+                // Переключаем отображение конфигурации
+                toggleScheduleConfig();
+                toggleStorageSettings();
+                
+                // Изменяем заголовок модального окна
+                document.getElementById('addScheduleModalLabel').textContent = 'Редактировать расписание';
+                
+                // Показываем модальное окно
+                const modal = new bootstrap.Modal(document.getElementById('addScheduleModal'));
+                modal.show();
+            })
+            .catch(error => {
+                console.error('Ошибка при получении данных расписания:', error);
+                alert('Не удалось загрузить данные расписания');
+            })
+            .finally(() => {
+                // Скрываем спиннер
+                App.showSpinner(false);
+            });
+    };
+    
+    window.deleteSchedule = function(scheduleId) {
+        // Показываем модальное окно для подтверждения
+        const modal = new bootstrap.Modal(document.getElementById('deleteScheduleModal'));
+        modal.show();
+        
+        // Устанавливаем обработчик для кнопки подтверждения
+        document.getElementById('confirmDeleteSchedule').onclick = function() {
+            // Показываем спиннер
+            App.showSpinner(true);
+            
+            fetch(`/api/v1/schedules/${scheduleId}`, {
+                method: 'DELETE'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Не удалось удалить расписание');
+                }
+                
+                // Закрываем модальное окно
+                modal.hide();
+                
+                // Обновляем список расписаний
+                loadSchedules();
+            })
+            .catch(error => {
+                console.error('Ошибка при удалении расписания:', error);
+                alert('Не удалось удалить расписание');
+            })
+            .finally(() => {
+                // Скрываем спиннер
+                App.showSpinner(false);
+            });
+        };
+    };
+    
+    // Обработчик для открытия модального окна (очистка формы)
+    document.getElementById('addScheduleModal').addEventListener('show.bs.modal', function (event) {
+        // Если это не редактирование (кнопка имеет data-edit="true")
+        if (!event.relatedTarget || !event.relatedTarget.dataset.edit) {
+            resetScheduleForm();
+        }
+    });
+});
+</script>
+{% endblock %} 

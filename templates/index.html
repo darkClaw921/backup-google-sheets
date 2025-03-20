@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Backup Google Sheets - Главная{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card bg-light">
+            <div class="card-body">
+                <h1 class="card-title mb-4 text-center">Резервное копирование Google Sheets</h1>
+                <p class="card-text text-center">
+                    Добро пожаловать в сервис автоматического резервного копирования таблиц Google Sheets.
+                    Добавьте таблицы для отслеживания, настройте расписание и забудьте о потере данных!
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="bi bi-table me-2"></i>Таблицы</h5>
+            </div>
+            <div class="card-body">
+                <p class="card-text">Добавьте таблицы Google Sheets для резервного копирования. Для доступа необходимо предоставить нашему сервисному аккаунту доступ к таблице.</p>
+                <p><strong>Сервисный аккаунт:</strong> <code>backup-service@example.iam.gserviceaccount.com</code></p>
+            </div>
+            <div class="card-footer">
+                <a href="/sheets" class="btn btn-primary">Управление таблицами</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i>Расписания</h5>
+            </div>
+            <div class="card-body">
+                <p class="card-text">Настройте гибкие расписания резервного копирования для ваших таблиц. Бэкапы могут создаваться по расписанию или вручную.</p>
+                <p>Поддерживаются интервальные и cron-расписания.</p>
+            </div>
+            <div class="card-footer">
+                <a href="/schedules" class="btn btn-success">Управление расписаниями</a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4 mb-4">
+        <div class="card h-100">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0"><i class="bi bi-archive me-2"></i>Бэкапы</h5>
+            </div>
+            <div class="card-body">
+                <p class="card-text">Просматривайте и скачивайте созданные резервные копии. Бэкапы хранятся в различных хранилищах и доступны в любое время.</p>
+                <p>Формат хранения: файлы Excel XLSX с данными всех листов таблицы.</p>
+            </div>
+            <div class="card-footer">
+                <a href="/backups" class="btn btn-info">Список бэкапов</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-secondary text-white">
+                <h5 class="mb-0">Инструкция по настройке</h5>
+            </div>
+            <div class="card-body">
+                <ol>
+                    <li class="mb-2">Предоставьте сервисному аккаунту <code>backup-service@example.iam.gserviceaccount.com</code> доступ к вашей таблице Google Sheets с правами на чтение.</li>
+                    <li class="mb-2">Добавьте таблицу в раздел "Таблицы", указав ее ID (можно найти в URL таблицы после <code>/d/</code> и до <code>/edit</code>).</li>
+                    <li class="mb-2">Создайте расписание бэкапа, выбрав тип и периодичность.</li>
+                    <li class="mb-2">Ваши бэкапы будут создаваться автоматически согласно расписанию!</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

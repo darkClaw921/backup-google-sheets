@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Управление таблицами{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Управление таблицами</h1>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSheetModal">
+        <i class="bi bi-plus-circle me-1"></i> Добавить таблицу
+    </button>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div id="sheetsTable" class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Название</th>
+                        <th>ID таблицы</th>
+                        <th>Последний бэкап</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="sheetsList">
+                    <!-- Данные будут загружены с помощью JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        <div id="noSheets" class="text-center py-4 d-none">
+            <p class="text-muted">Нет добавленных таблиц. Добавьте первую таблицу, нажав кнопку "Добавить таблицу".</p>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для добавления таблицы -->
+<div class="modal fade" id="addSheetModal" tabindex="-1" aria-labelledby="addSheetModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addSheetModalLabel">Добавить новую таблицу</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addSheetForm">
+                    <div class="mb-3">
+                        <label for="spreadsheetId" class="form-label">ID таблицы Google Sheets</label>
+                        <input type="text" class="form-control" id="spreadsheetId" required>
+                        <div class="form-text">ID таблицы можно найти в URL между /d/ и /edit</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sheetName" class="form-label">Название (опционально)</label>
+                        <input type="text" class="form-control" id="sheetName">
+                        <div class="form-text">Если не указано, будет использовано оригинальное название таблицы</div>
+                    </div>
+                    <div class="alert alert-info">
+                        <strong>Важно:</strong> Убедитесь, что вы предоставили доступ сервисному аккаунту 
+                        <code>backup-service@example.iam.gserviceaccount.com</code> к таблице.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="addSheetBtn">Добавить таблицу</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно для подтверждения удаления -->
+<div class="modal fade" id="deleteSheetModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Подтверждение удаления</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы уверены, что хотите удалить таблицу <span id="deleteSheetName" class="fw-bold"></span>?</p>
+                <p class="text-danger">Это действие также удалит все связанные расписания и бэкапы будут недоступны для скачивания.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteSheet">Удалить</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Загрузка списка таблиц при загрузке страницы
+    loadSheets();
+    
+    // Обработчик для кнопки добавления таблицы
+    document.getElementById('addSheetBtn').addEventListener('click', addSheet);
+    
+    // Функция загрузки списка таблиц
+    function loadSheets() {
+        fetch('/api/v1/sheets/')
+            .then(response => response.json())
+            .then(data => {
+                const tableBody = document.getElementById('sheetsList');
+                const noSheets = document.getElementById('noSheets');
+                const sheetsTable = document.getElementById('sheetsTable');
+                
+                // Очищаем текущий список
+                tableBody.innerHTML = '';
+                
+                if (data.length === 0) {
+                    noSheets.classList.remove('d-none');
+                    sheetsTable.classList.add('d-none');
+                } else {
+                    noSheets.classList.add('d-none');
+                    sheetsTable.classList.remove('d-none');
+                    
+                    // Добавляем таблицы в список
+                    data.forEach(sheet => {
+                        const row = document.createElement('tr');
+                        
+                        // Форматируем дату последнего бэкапа
+                        const lastBackup = sheet.last_backup 
+                            ? new Date(sheet.last_backup).toLocaleString('ru-RU') 
+                            : 'Нет бэкапов';
+                        
+                        row.innerHTML = `
+                            <td>${sheet.name}</td>
+                            <td><code>${sheet.spreadsheet_id}</code></td>
+                            <td>${lastBackup}</td>
+                            <td>
+                                <button class="btn btn-sm btn-primary me-1" onclick="verifySheet('${sheet.id}')">
+                                    <i class="bi bi-check-circle"></i>
+                                </button>
+                                <button class="btn btn-sm btn-success me-1" onclick="createBackup('${sheet.id}')">
+                                    <i class="bi bi-download"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteSheet('${sheet.id}', '${sheet.name}')">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        `;
+                        
+                        tableBody.appendChild(row);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при загрузке таблиц:', error);
+                alert('Не удалось загрузить список таблиц');
+            });
+    }
+    
+    // Функция добавления новой таблицы
+    function addSheet() {
+        const spreadsheetId = document.getElementById('spreadsheetId').value.trim();
+        const sheetName = document.getElementById('sheetName').value.trim();
+        
+        if (!spreadsheetId) {
+            alert('Введите ID таблицы');
+            return;
+        }
+        
+        const payload = {
+            spreadsheet_id: spreadsheetId,
+            name: sheetName || spreadsheetId // если имя не указано, используем ID
+        };
+        
+        fetch('/api/v1/sheets/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Не удалось добавить таблицу');
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Закрываем модальное окно
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addSheetModal'));
+            modal.hide();
+            
+            // Очищаем форму
+            document.getElementById('addSheetForm').reset();
+            
+            // Обновляем список таблиц
+            loadSheets();
+        })
+        .catch(error => {
+            console.error('Ошибка при добавлении таблицы:', error);
+            alert('Не удалось добавить таблицу. Убедитесь, что ID корректный и сервисный аккаунт имеет доступ к таблице.');
+        });
+    }
+    
+    // Глобальные функции для работы с таблицами
+    window.verifySheet = function(sheetId) {
+        fetch(`/api/v1/sheets/${sheetId}/verify`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.access) {
+                    alert(`Доступ к таблице подтвержден.\nНазвание: ${data.title}\nЛисты: ${data.sheets.join(', ')}`);
+                } else {
+                    alert(`Ошибка доступа: ${data.message}`);
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при проверке доступа:', error);
+                alert('Не удалось проверить доступ к таблице');
+            });
+    };
+    
+    window.createBackup = function(sheetId) {
+        if (confirm('Создать новый бэкап таблицы?')) {
+            fetch(`/api/v1/backups/?sheet_id=${sheetId}`, {
+                method: 'POST'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Не удалось создать бэкап');
+                }
+                return response.json();
+            })
+            .then(data => {
+                alert('Бэкап успешно создан');
+                loadSheets(); // Обновляем список для отображения времени последнего бэкапа
+            })
+            .catch(error => {
+                console.error('Ошибка при создании бэкапа:', error);
+                alert('Не удалось создать бэкап таблицы');
+            });
+        }
+    };
+    
+    window.deleteSheet = function(sheetId, sheetName) {
+        // Заполняем модальное окно
+        document.getElementById('deleteSheetName').textContent = sheetName;
+        
+        // Показываем модальное окно
+        const modal = new bootstrap.Modal(document.getElementById('deleteSheetModal'));
+        modal.show();
+        
+        // Устанавливаем обработчик для кнопки подтверждения
+        document.getElementById('confirmDeleteSheet').onclick = function() {
+            fetch(`/api/v1/sheets/${sheetId}`, {
+                method: 'DELETE'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Не удалось удалить таблицу');
+                }
+                
+                // Закрываем модальное окно
+                modal.hide();
+                
+                // Обновляем список таблиц
+                loadSheets();
+            })
+            .catch(error => {
+                console.error('Ошибка при удалении таблицы:', error);
+                alert('Не удалось удалить таблицу');
+            });
+        };
+    };
+});
+</script>
+{% endblock %}

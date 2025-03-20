@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}Интеграции - Backup Google Sheets{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Интеграции</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">Bitrix24</h5>
+        </div>
+        <div class="card-body">
+            <form id="bitrixSettingsForm">
+                <div class="mb-3">
+                    <label for="webhookUrl" class="form-label">URL вебхука Bitrix24</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="webhookUrl" name="webhook_url" placeholder="https://your-domain.bitrix24.ru/rest/1/your-webhook-code/" value="{{ bitrix_settings.webhook_url if bitrix_settings else '' }}">
+                        <button class="btn btn-outline-secondary" type="button" id="testConnection">Проверить соединение</button>
+                    </div>
+                    <div class="form-text">Создайте входящий вебхук в Bitrix24 и скопируйте полный URL сюда</div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="folderId" class="form-label">ID папки Bitrix24 (опционально)</label>
+                    <input type="text" class="form-control" id="folderId" name="folder_id" placeholder="Оставьте пустым для автоматического создания" value="{{ bitrix_settings.folder_id if bitrix_settings and bitrix_settings.folder_id else '' }}">
+                    <div class="form-text">Если оставить поле пустым, будет создана папка "backup_google_sheets" в корневом каталоге</div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="basePath" class="form-label">Базовый путь</label>
+                    <input type="text" class="form-control" id="basePath" name="base_path" placeholder="backup_google_sheets" value="{{ bitrix_settings.base_path if bitrix_settings else 'backup_google_sheets' }}">
+                    <div class="form-text">Название папки для хранения бэкапов</div>
+                </div>
+                
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary" id="saveSettings">Сохранить настройки</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Папки в Bitrix24</h5>
+        </div>
+        <div class="card-body">
+            <div id="folderList">
+                <div class="text-center py-4" id="folderListLoader">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка списка папок...</p>
+                </div>
+                <div id="folderListContent" class="d-none">
+                    <!-- Содержимое будет заполнено через JavaScript -->
+                </div>
+                <div id="folderListError" class="alert alert-danger d-none">
+                    Не удалось загрузить список папок. Проверьте настройки интеграции.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Загрузка настроек при открытии страницы
+        loadBitrixSettings();
+        
+        // Загрузка списка папок
+        loadBitrixFolders();
+        
+        // Обработчик сохранения настроек
+        document.getElementById('bitrixSettingsForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveBitrixSettings();
+        });
+        
+        // Обработчик проверки соединения
+        document.getElementById('testConnection').addEventListener('click', function() {
+            testBitrixConnection();
+        });
+    });
+    
+    // Функция загрузки настроек
+    function loadBitrixSettings() {
+        fetch('/api/v1/integrations/bitrix')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки настроек');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.webhook_url) {
+                    document.getElementById('webhookUrl').value = data.webhook_url;
+                }
+                if (data.folder_id) {
+                    document.getElementById('folderId').value = data.folder_id;
+                }
+                if (data.base_path) {
+                    document.getElementById('basePath').value = data.base_path;
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка при загрузке настроек:', error);
+            });
+    }
+    
+    // Функция сохранения настроек
+    function saveBitrixSettings() {
+        const formData = {
+            webhook_url: document.getElementById('webhookUrl').value,
+            folder_id: document.getElementById('folderId').value,
+            base_path: document.getElementById('basePath').value
+        };
+        
+        fetch('/api/v1/integrations/bitrix', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Ошибка сохранения настроек');
+            }
+            return response.json();
+        })
+        .then(data => {
+            alert('Настройки успешно сохранены');
+            // Перезагрузить список папок
+            loadBitrixFolders();
+        })
+        .catch(error => {
+            console.error('Ошибка при сохранении настроек:', error);
+            alert('Ошибка при сохранении настроек: ' + error.message);
+        });
+    }
+    
+    // Функция проверки соединения
+    function testBitrixConnection() {
+        const webhookUrl = document.getElementById('webhookUrl').value;
+        
+        if (!webhookUrl) {
+            alert('Введите URL вебхука для проверки соединения');
+            return;
+        }
+        
+        fetch('/api/v1/integrations/bitrix/test', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ webhook_url: webhookUrl })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Ошибка проверки соединения');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                alert('Соединение установлено успешно!');
+            } else {
+                alert('Ошибка соединения: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Ошибка при проверке соединения:', error);
+            alert('Ошибка при проверке соединения: ' + error.message);
+        });
+    }
+    
+    // Функция загрузки списка папок
+    function loadBitrixFolders() {
+        document.getElementById('folderListLoader').classList.remove('d-none');
+        document.getElementById('folderListContent').classList.add('d-none');
+        document.getElementById('folderListError').classList.add('d-none');
+        
+        fetch('/api/v1/integrations/bitrix/folders')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Ошибка загрузки папок');
+                }
+                return response.json();
+            })
+            .then(data => {
+                document.getElementById('folderListLoader').classList.add('d-none');
+                document.getElementById('folderListContent').classList.remove('d-none');
+                
+                const folderListContent = document.getElementById('folderListContent');
+                folderListContent.innerHTML = '';
+                
+                if (data.length === 0) {
+                    folderListContent.innerHTML = '<div class="alert alert-info">Папки не найдены. Проверьте настройки подключения к Bitrix24.</div>';
+                    return;
+                }
+                
+                const table = document.createElement('table');
+                table.className = 'table table-striped';
+                
+                const thead = document.createElement('thead');
+                thead.innerHTML = `
+                    <tr>
+                        <th>ID</th>
+                        <th>Название</th>
+                        <th>Путь</th>
+                        <th>Действия</th>
+                    </tr>
+                `;
+                
+                const tbody = document.createElement('tbody');
+                
+                data.forEach(folder => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${folder.ID || '-'}</td>
+                        <td>${folder.NAME || '-'}</td>
+                        <td>${folder.PATH || '-'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-primary" 
+                                    onclick="selectFolder('${folder.ID}')">
+                                Выбрать
+                            </button>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+                
+                table.appendChild(thead);
+                table.appendChild(tbody);
+                folderListContent.appendChild(table);
+            })
+            .catch(error => {
+                console.error('Ошибка при загрузке списка папок:', error);
+                document.getElementById('folderListLoader').classList.add('d-none');
+                document.getElementById('folderListError').classList.remove('d-none');
+                document.getElementById('folderListError').textContent = 'Ошибка при загрузке списка папок: ' + error.message;
+            });
+    }
+    
+    // Функция выбора папки
+    function selectFolder(folderId) {
+        document.getElementById('folderId').value = folderId;
+        alert('Папка выбрана. Не забудьте сохранить настройки!');
+    }
+</script>
+{% endblock %} 

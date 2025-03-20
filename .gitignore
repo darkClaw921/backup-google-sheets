@@ -1,0 +1,15 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.env
+# Virtual environments
+.venv
+*.log
+backups/*
+credentials/*
+still-sight-454310-a6-60b4e1fe872d.json
+app.db
