@@ -11,7 +11,7 @@ class StorageConfig(BaseModel):
 
 class ScheduleBase(BaseModel):
     """Базовая схема для расписания"""
-    sheet_id: str
+    sheets_ids: List[str]
     schedule_type: Literal["interval", "cron"]
     schedule_config: Dict[str, Any]
     storage_configs: List[StorageConfig]
@@ -25,7 +25,7 @@ class ScheduleCreate(ScheduleBase):
 
 class ScheduleUpdate(BaseModel):
     """Схема для обновления расписания"""
-    sheet_id: Optional[str] = None
+    sheets_ids: Optional[List[str]] = None
     schedule_type: Optional[Literal["interval", "cron"]] = None
     schedule_config: Optional[Dict[str, Any]] = None
     storage_configs: Optional[List[StorageConfig]] = None
@@ -43,7 +43,10 @@ class ScheduleResponse(ScheduleBase):
         json_schema_extra = {
             "example": {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
-                "sheet_id": "456e7890-e89b-12d3-a456-426614174001",
+                "sheets_ids": [
+                    "456e7890-e89b-12d3-a456-426614174001",
+                    "789e1234-e89b-12d3-a456-426614174002"
+                ],
                 "schedule_type": "interval",
                 "schedule_config": {
                     "interval": {

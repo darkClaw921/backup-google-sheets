@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -11,6 +11,7 @@ from app.core.sheets_service import create_backup
 from app.models.schedule import Schedule
 from app.models.sheet import Sheet
 from app.api.deps import get_db
+from app.services.backup_service import backup_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,9 @@ class SchedulerService:
         self.scheduler.start()
         logger.info("Планировщик задач запущен")
     
-    def add_schedule(self, schedule: Schedule, db: Session) -> str:
+    def add_multi_sheet_schedule(self, schedule: Schedule, db: Session) -> str:
         """
-        Добавляет расписание в планировщик
+        Добавляет расписание для нескольких таблиц в планировщик
         
         Args:
             schedule: Объект расписания
@@ -34,6 +35,102 @@ class SchedulerService:
         Returns:
             ID задачи в планировщике
         """
+        try:
+            # Получаем информацию о таблицах
+            sheet_ids = schedule.sheets_ids
+            sheets = db.query(Sheet).filter(Sheet.id.in_(sheet_ids)).all()
+            
+            if len(sheets) != len(sheet_ids):
+                logger.error(f"Не удалось найти все таблицы для расписания {schedule.id}")
+                missing_ids = set(sheet_ids) - set(sheet.id for sheet in sheets)
+                logger.error(f"Отсутствуют таблицы с ID: {missing_ids}")
+                return None
+            
+            # Формируем триггер в зависимости от типа расписания
+            trigger = self._create_trigger(schedule.schedule_type, schedule.schedule_config)
+            if not trigger:
+                logger.error(f"Не удалось создать триггер для расписания {schedule.id}")
+                return None
+            
+            # Функция для выполнения задачи с несколькими таблицами
+            def multi_backup_job(schedule_id: str, db: Session):
+                """
+                Задача для создания бэкапов по расписанию для нескольких таблиц
+                """
+                try:
+                    logger.info(f"Запуск бэкапа по расписанию {schedule_id}")
+                    
+                    # Получаем расписание из БД
+                    schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+                    if not schedule:
+                        logger.error(f"Расписание {schedule_id} не найдено")
+                        return
+                    
+                    # Получаем информацию о таблицах
+                    sheets_ids = schedule.sheets_ids
+                    sheets = db.query(Sheet).filter(Sheet.id.in_(sheets_ids)).all()
+                    
+                    if len(sheets) != len(sheets_ids):
+                        logger.error(f"Не найдены некоторые таблицы для расписания {schedule_id}")
+                        return
+                    
+                    # Создаем бэкапы для всех таблиц
+                    sheets_data = []
+                    for sheet in sheets:
+                        sheets_data.append({
+                            "id": sheet.id,
+                            "name": sheet.name,
+                            "spreadsheet_id": sheet.spreadsheet_id
+                        })
+                    
+                    results = backup_sheets(
+                        sheets=sheets_data,
+                        storage_configs=schedule.storage_configs,
+                        db=db
+                    )
+                    
+                    # Подсчитываем статистику выполнения
+                    success_count = sum(1 for r in results if r.get("success", False))
+                    logger.info(f"Бэкап по расписанию {schedule_id} завершен. Успешно: {success_count}/{len(sheets)}")
+                    
+                except Exception as e:
+                    logger.error(f"Ошибка при выполнении бэкапа по расписанию {schedule_id}: {str(e)}")
+                    logger.exception(e)
+            
+            # Добавляем задачу в планировщик
+            job = self.scheduler.add_job(
+                multi_backup_job,
+                trigger=trigger,
+                id=f"backup_{schedule.id}",
+                replace_existing=True,
+                misfire_grace_time=3600,  # 1 час
+                args=[schedule.id, db]
+            )
+            
+            logger.info(f"Добавлено расписание {schedule.id} для {len(sheets)} таблиц")
+            return job.id
+            
+        except Exception as e:
+            logger.error(f"Ошибка при добавлении расписания для нескольких таблиц: {str(e)}")
+            return None
+    
+    def add_schedule(self, schedule: Schedule, db: Session) -> str:
+        """
+        Добавляет расписание в планировщик (для обратной совместимости)
+        
+        Args:
+            schedule: Объект расписания
+            db: Сессия базы данных
+            
+        Returns:
+            ID задачи в планировщике
+        """
+        # Проверяем формат расписания
+        if hasattr(schedule, 'sheets_ids') and isinstance(schedule.sheets_ids, list):
+            # Новый формат с несколькими таблицами
+            return self.add_multi_sheet_schedule(schedule, db)
+        
+        # Старый формат с одной таблицей
         # Получаем информацию о таблице
         sheet = db.query(Sheet).filter(Sheet.id == schedule.sheet_id).first()
         if not sheet:
@@ -114,7 +211,11 @@ class SchedulerService:
         
         # Если расписание активно, добавляем его снова
         if schedule.is_active:
-            return self.add_schedule(schedule, db)
+            # Проверяем формат расписания
+            if hasattr(schedule, 'sheets_ids') and isinstance(schedule.sheets_ids, list):
+                return self.add_multi_sheet_schedule(schedule, db)
+            else:
+                return self.add_schedule(schedule, db)
         
         return None
     
@@ -205,7 +306,11 @@ def init_schedules(db: Session):
         schedules = db.query(Schedule).filter(Schedule.is_active == True).all()
         
         for schedule in schedules:
-            scheduler_service.add_schedule(schedule, db)
+            # Проверяем формат расписания
+            if hasattr(schedule, 'sheets_ids') and isinstance(schedule.sheets_ids, list):
+                scheduler_service.add_multi_sheet_schedule(schedule, db)
+            else:
+                scheduler_service.add_schedule(schedule, db)
         
         logger.info(f"Инициализировано {len(schedules)} расписаний")
     

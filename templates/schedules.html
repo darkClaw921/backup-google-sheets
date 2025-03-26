@@ -16,10 +16,10 @@
             <table class="table table-striped table-hover">
                 <thead>
                     <tr>
-                        <th>Таблица</th>
+                        <th>Таблицы</th>
                         <th>Тип расписания</th>
                         <th>Конфигурация</th>
-                        <th>Хранилище</th>
+                        <th>Хранилища</th>
                         <th>Статус</th>
                         <th>Действия</th>
                     </tr>
@@ -48,11 +48,13 @@
                     <input type="hidden" id="scheduleId" value="">
                     
                     <div class="mb-3">
-                        <label for="sheetId" class="form-label">Таблица *</label>
-                        <select class="form-select" id="sheetId" required>
-                            <option value="">Выберите таблицу</option>
+                        <label for="sheetsIds" class="form-label">Таблицы *</label>
+                        <select class="form-select" id="sheetsIds" multiple required>
                             <!-- Список таблиц будет загружен с помощью JavaScript -->
                         </select>
+                        <small class="form-text text-muted">
+                            Выберите одну или несколько таблиц для резервного копирования. Удерживайте Ctrl (или Cmd) для выбора нескольких элементов. Ctrl+A - выбрать все.
+                        </small>
                     </div>
                     
                     <div class="mb-3">
@@ -113,11 +115,20 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label for="storageType" class="form-label">Тип хранилища</label>
-                        <select class="form-select" id="storageType" onchange="toggleStorageSettings()">
-                            <option value="local">Локальное хранилище</option>
-                            <option value="bitrix">Битрикс24 Диск</option>
-                        </select>
+                        <label for="storageTypes" class="form-label">Хранилища *</label>
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="storageLocal" checked>
+                                    <label class="form-check-label" for="storageLocal">Локальное хранилище</label>
+                                </div>
+                                
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="storageBitrix">
+                                    <label class="form-check-label" for="storageBitrix">Битрикс24 Диск</label>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <!-- Настройки Битрикс24 -->
@@ -174,6 +185,26 @@
         </div>
     </div>
 </div>
+
+<!-- Модальное окно для запуска расписания -->
+<div class="modal fade" id="executeScheduleModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Запуск бэкапа</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Вы хотите создать бэкап всех таблиц по этому расписанию немедленно?</p>
+                <p>Операция может занять некоторое время.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                <button type="button" class="btn btn-primary" id="confirmExecuteSchedule">Запустить</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -187,6 +218,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Обработчики событий для формы добавления/редактирования расписания
     document.getElementById('scheduleType').addEventListener('change', toggleScheduleConfig);
     document.getElementById('saveScheduleBtn').addEventListener('click', saveSchedule);
+    document.getElementById('storageBitrix').addEventListener('change', toggleBitrixSettings);
     
     // Загрузка сохраненных интеграций с Битрикс24 (упрощенная версия)
     function loadBitrixIntegrations() {
@@ -237,12 +269,24 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
+    // Функция переключения настроек Битрикс24
+    function toggleBitrixSettings() {
+        const isChecked = document.getElementById('storageBitrix').checked;
+        const bitrixSettings = document.getElementById('bitrixSettings');
+        
+        if (isChecked) {
+            bitrixSettings.classList.remove('d-none');
+        } else {
+            bitrixSettings.classList.add('d-none');
+        }
+    }
+    
     // Функция загрузки списка таблиц
     function loadSheets() {
         fetch('/api/v1/sheets/')
             .then(response => response.json())
             .then(data => {
-                const sheetSelect = document.getElementById('sheetId');
+                const sheetSelect = document.getElementById('sheetsIds');
                 
                 // Очищаем текущий список, оставляя только первый пункт
                 while (sheetSelect.options.length > 1) {
@@ -299,8 +343,20 @@ document.addEventListener('DOMContentLoaded', function() {
                             data.forEach(schedule => {
                                 const row = document.createElement('tr');
                                 
-                                // Получаем имя таблицы
-                                const sheetName = sheetsMap[schedule.sheet_id] || schedule.sheet_id;
+                                // Получаем имена таблиц
+                                let sheetNames = '';
+                                if (schedule.sheets_ids && schedule.sheets_ids.length > 0) {
+                                    const names = schedule.sheets_ids.map(id => sheetsMap[id] || id);
+                                    const totalSheets = names.length;
+                                    
+                                    if (totalSheets <= 3) {
+                                        sheetNames = names.join(', ');
+                                    } else {
+                                        sheetNames = `${names.slice(0, 2).join(', ')} и еще ${totalSheets - 2}`;
+                                    }
+                                } else {
+                                    sheetNames = 'Нет таблиц';
+                                }
                                 
                                 // Форматируем конфигурацию расписания
                                 let configText = '';
@@ -337,20 +393,25 @@ document.addEventListener('DOMContentLoaded', function() {
                                 const statusText = schedule.is_active ? 'Активно' : 'Не активно';
                                 const statusClass = schedule.is_active ? 'success' : 'danger';
                                 
-                                // Получаем информацию о хранилище
-                                let storageTypeText = 'Нет';
+                                // Получаем информацию о хранилищах
+                                let storageTypesText = 'Нет';
                                 if (schedule.storage_configs && schedule.storage_configs.length > 0) {
-                                    storageTypeText = schedule.storage_configs[0].storage_type;
+                                    const storageTypes = schedule.storage_configs.map(config => {
+                                        if (config.storage_type === 'local') return 'Локальное';
+                                        if (config.storage_type === 'bitrix') return 'Битрикс24';
+                                        return config.storage_type;
+                                    });
+                                    storageTypesText = storageTypes.join(', ');
                                 }
                                 
                                 // Форматируем тип расписания
                                 const scheduleTypeText = schedule.schedule_type === 'interval' ? 'Интервальное' : 'Cron';
                                 
                                 row.innerHTML = `
-                                    <td>${sheetName}</td>
+                                    <td>${sheetNames}</td>
                                     <td>${scheduleTypeText}</td>
                                     <td>${configText}</td>
-                                    <td>${storageTypeText}</td>
+                                    <td>${storageTypesText}</td>
                                     <td><span class="status-${statusClass}">${statusText}</span></td>
                                     <td>
                                         <button class="btn btn-sm btn-primary me-1" onclick="editSchedule('${schedule.id}')">
@@ -358,6 +419,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                         </button>
                                         <button class="btn btn-sm btn-danger" onclick="deleteSchedule('${schedule.id}')">
                                             <i class="bi bi-trash"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-success me-1" onclick="executeSchedule('${schedule.id}')" title="Выполнить немедленно">
+                                            <i class="bi bi-play"></i>
                                         </button>
                                     </td>
                                 `;
@@ -380,9 +444,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Функция для сбора данных формы расписания
     function getScheduleFormData() {
         const scheduleType = document.getElementById('scheduleType').value;
-        const storageType = document.getElementById('storageType').value;
+        const sheetsIdsSelect = document.getElementById('sheetsIds');
         let scheduleConfig = {};
-        let storage_params = {};
+        let storage_configs = [];
+        
+        // Получаем выбранные таблицы
+        const sheetsIds = Array.from(sheetsIdsSelect.selectedOptions).map(option => option.value);
         
         if (scheduleType === 'interval') {
             const intervalValue = parseInt(document.getElementById('intervalValue').value);
@@ -411,36 +478,32 @@ document.addEventListener('DOMContentLoaded', function() {
             };
         }
         
-        // Собираем параметры хранилища
-        if (storageType === 'bitrix') {
-            // Получаем ID интеграции
-            const integrationId = document.getElementById('bitrixIntegrationId').value;
-            console.log('Использование ID интеграции для Битрикс:', integrationId);
-            
-            // Проверяем, что ID интеграции задан
-            if (!integrationId) {
-                console.error('ID интеграции Битрикс24 не задан!');
-            }
-            
-            // Преобразуем ID в число, если это строка с числом
-            const numericId = parseInt(integrationId, 10);
-            
-            // Убеждаемся, что ID интеграции является числом
-            storage_params = {
-                integration_id: isNaN(numericId) ? integrationId : numericId
-            };
-            
-            console.log('Финальные параметры хранилища:', storage_params);
+        // Собираем информацию о хранилищах
+        
+        // Локальное хранилище
+        if (document.getElementById('storageLocal').checked) {
+            storage_configs.push({
+                storage_type: 'local',
+                storage_params: {}
+            });
         }
         
-        // Создаем массив с конфигурациями хранилищ
-        const storage_configs = [{
-            storage_type: storageType,
-            storage_params: storage_params
-        }];
+        // Битрикс24
+        if (document.getElementById('storageBitrix').checked) {
+            const integrationId = document.getElementById('bitrixIntegrationId').value;
+            
+            if (integrationId) {
+                storage_configs.push({
+                    storage_type: 'bitrix',
+                    storage_params: {
+                        integration_id: integrationId
+                    }
+                });
+            }
+        }
         
         return {
-            sheet_id: document.getElementById('sheetId').value,
+            sheets_ids: sheetsIds,
             schedule_type: scheduleType,
             schedule_config: scheduleConfig,
             storage_configs: storage_configs,
@@ -450,12 +513,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Функция для валидации формы расписания
     function validateScheduleForm() {
-        const sheetId = document.getElementById('sheetId').value;
+        const sheetsIdsSelect = document.getElementById('sheetsIds');
+        const sheetsIds = Array.from(sheetsIdsSelect.selectedOptions).map(option => option.value);
         const scheduleType = document.getElementById('scheduleType').value;
-        const storageType = document.getElementById('storageType').value;
+        const storageLocal = document.getElementById('storageLocal').checked;
+        const storageBitrix = document.getElementById('storageBitrix').checked;
         
-        if (!sheetId) {
-            alert('Выберите таблицу');
+        if (sheetsIds.length === 0) {
+            alert('Выберите хотя бы одну таблицу');
             return false;
         }
         
@@ -467,12 +532,9 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         
-        if (storageType === 'bitrix') {
-            const integrationId = document.getElementById('bitrixIntegrationId').value;
-            if (!integrationId) {
-                alert('Выберите интеграцию с Битрикс24');
-                return false;
-            }
+        if (!storageLocal && !storageBitrix) {
+            alert('Выберите хотя бы одно хранилище');
+            return false;
         }
         
         return true;
@@ -539,14 +601,19 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('scheduleForm').reset();
         document.getElementById('scheduleId').value = '';
         document.getElementById('addScheduleModalLabel').textContent = 'Добавить расписание';
-        toggleScheduleConfig();
-        toggleStorageSettings();
         
-        // Очищаем список папок Битрикс24
-        const folderSelect = document.getElementById('bitrixIntegrationId');
-        while (folderSelect.options.length > 1) {
-            folderSelect.remove(1);
-        }
+        // Сбрасываем выбранные таблицы
+        const sheetsIdsSelect = document.getElementById('sheetsIds');
+        Array.from(sheetsIdsSelect.options).forEach(option => {
+            option.selected = false;
+        });
+        
+        // Сбрасываем настройки хранилищ
+        document.getElementById('storageLocal').checked = true;
+        document.getElementById('storageBitrix').checked = false;
+        
+        toggleScheduleConfig();
+        toggleBitrixSettings();
     }
     
     // Глобальные функции для работы с расписаниями
@@ -559,29 +626,42 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(schedule => {
                 // Заполняем форму данными
                 document.getElementById('scheduleId').value = schedule.id;
-                document.getElementById('sheetId').value = schedule.sheet_id;
                 document.getElementById('scheduleType').value = schedule.schedule_type;
                 document.getElementById('isActive').checked = schedule.is_active;
                 
-                // Получаем информацию о хранилище из массива storage_configs
-                if (schedule.storage_configs && schedule.storage_configs.length > 0) {
-                    const storageConfig = schedule.storage_configs[0];
-                    document.getElementById('storageType').value = storageConfig.storage_type;
-                    
-                    // Заполняем настройки Битрикс
-                    if (storageConfig.storage_type === 'bitrix' && storageConfig.storage_params) {
-                        loadBitrixIntegrations().then((integrations) => {
-                            // Поскольку у нас только одна интеграция, всегда используем её
-                            document.getElementById('bitrixIntegrationId').value = '1';
-                            
-                            // Уведомляем пользователя только в случае webhook_url для обратной совместимости
-                            if (storageConfig.storage_params.webhook_url && !storageConfig.storage_params.integration_id) {
-                                console.log('Старый формат настроек с webhook_url:', storageConfig.storage_params.webhook_url);
-                                alert('Внимание: это расписание использует устаревший формат настроек Битрикс24. Будет использована существующая интеграция.');
-                            }
-                        });
-                    }
+                // Выбираем таблицы
+                const sheetsIdsSelect = document.getElementById('sheetsIds');
+                if (schedule.sheets_ids && schedule.sheets_ids.length > 0) {
+                    Array.from(sheetsIdsSelect.options).forEach(option => {
+                        option.selected = schedule.sheets_ids.includes(option.value);
+                    });
                 }
+                
+                // Сбрасываем настройки хранилищ
+                document.getElementById('storageLocal').checked = false;
+                document.getElementById('storageBitrix').checked = false;
+                
+                // Выбираем хранилища
+                if (schedule.storage_configs && schedule.storage_configs.length > 0) {
+                    schedule.storage_configs.forEach(config => {
+                        if (config.storage_type === 'local') {
+                            document.getElementById('storageLocal').checked = true;
+                        } else if (config.storage_type === 'bitrix') {
+                            document.getElementById('storageBitrix').checked = true;
+                            
+                            // Загружаем интеграции Битрикс24 и выбираем нужную
+                            loadBitrixIntegrations().then(() => {
+                                const integrationId = config.storage_params && config.storage_params.integration_id;
+                                if (integrationId) {
+                                    document.getElementById('bitrixIntegrationId').value = integrationId;
+                                }
+                            });
+                        }
+                    });
+                }
+                
+                // Обновляем видимость настроек Битрикс24
+                toggleBitrixSettings();
                 
                 // Заполняем конфигурацию расписания
                 if (schedule.schedule_type === 'interval') {
@@ -604,7 +684,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Переключаем отображение конфигурации
                 toggleScheduleConfig();
-                toggleStorageSettings();
                 
                 // Изменяем заголовок модального окна
                 document.getElementById('addScheduleModalLabel').textContent = 'Редактировать расписание';
@@ -665,6 +744,48 @@ document.addEventListener('DOMContentLoaded', function() {
             resetScheduleForm();
         }
     });
+
+    window.executeSchedule = function(scheduleId) {
+        // Показываем модальное окно для подтверждения
+        const modal = new bootstrap.Modal(document.getElementById('executeScheduleModal'));
+        modal.show();
+        
+        // Устанавливаем обработчик для кнопки подтверждения
+        document.getElementById('confirmExecuteSchedule').onclick = function() {
+            // Показываем спиннер
+            App.showSpinner(true);
+            
+            // Закрываем модальное окно
+            modal.hide();
+            
+            fetch(`/api/v1/schedules/${scheduleId}/execute`, {
+                method: 'POST'
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Не удалось выполнить расписание');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Показываем результат
+                const successCount = data.successful_backups;
+                const totalCount = data.sheets_count;
+                alert(`Бэкап выполнен успешно!\nСоздано бэкапов: ${successCount} из ${totalCount}`);
+                
+                // Обновляем список расписаний
+                loadSchedules();
+            })
+            .catch(error => {
+                console.error('Ошибка при выполнении расписания:', error);
+                alert('Не удалось выполнить расписание');
+            })
+            .finally(() => {
+                // Скрываем спиннер
+                App.showSpinner(false);
+            });
+        };
+    };
 });
 </script>
 {% endblock %} 

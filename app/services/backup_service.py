@@ -15,14 +15,14 @@ from app.services.integration_service import IntegrationService
 
 logger = logging.getLogger(__name__)
 
-def backup_sheet(
+def backup_sheet_by_id(
     sheet_id: str, 
     sheet_name: str,
     storage_configs: List[Dict[str, Any]],
     db: Optional[Any] = None
 ) -> Optional[Backup]:
     """
-    Создание резервной копии таблицы Google Sheets
+    Создание резервной копии одной таблицы Google Sheets
     
     Args:
         sheet_id: ID таблицы Google Sheets
@@ -296,4 +296,110 @@ def delete_backup(backup_id: str, storage_type: str, storage_path: str) -> bool:
     
     except Exception as e:
         logger.error(f"Ошибка при удалении бэкапа {backup_id}: {str(e)}")
-        return False 
+        return False
+
+def backup_sheets(
+    sheets: List[Dict[str, str]],
+    storage_configs: List[Dict[str, Any]],
+    db: Optional[Any] = None
+) -> List[Dict[str, Any]]:
+    """
+    Создание резервных копий для нескольких таблиц Google Sheets
+    
+    Args:
+        sheets: Список таблиц в формате [{"id": str, "name": str, "spreadsheet_id": str}]
+        storage_configs: Список конфигураций хранилищ
+        db: Сессия базы данных
+        
+    Returns:
+        Список результатов создания бэкапов для каждой таблицы
+    """
+    results = []
+    
+    for sheet in sheets:
+        try:
+            sheet_id = sheet["id"]
+            sheet_name = sheet.get("name", "Неизвестная таблица")
+            spreadsheet_id = sheet.get("spreadsheet_id")
+            
+            if not spreadsheet_id:
+                logger.error(f"Не указан spreadsheet_id для таблицы {sheet_id} ({sheet_name})")
+                results.append({
+                    "sheet_id": sheet_id,
+                    "sheet_name": sheet_name,
+                    "success": False,
+                    "error": "Отсутствует spreadsheet_id"
+                })
+                continue
+            
+            # Создаем бэкап для текущей таблицы
+            backup_result = backup_sheet_by_id(
+                sheet_id=spreadsheet_id,
+                sheet_name=sheet_name,
+                storage_configs=storage_configs,
+                db=db
+            )
+            
+            if backup_result:
+                # Создаем запись о бэкапе в базе данных, если передана сессия
+                if db is not None:
+                    try:
+                        from app.models.backup import Backup
+                        from app.models.sheet import Sheet
+                        
+                        # Создание записи о бэкапе в БД
+                        backup = Backup(
+                            sheet_id=sheet_id,
+                            filename=backup_result.filename,
+                            file_path=backup_result.file_path,
+                            size=backup_result.size,
+                            status=backup_result.status,
+                            storage_type=backup_result.storage_type,
+                            storage_params=backup_result.storage_params,
+                            storage_results=backup_result.storage_results,
+                            backup_metadata=backup_result.backup_metadata,
+                            created_at=datetime.utcnow()
+                        )
+                        
+                        db.add(backup)
+                        db.commit()
+                        db.refresh(backup)
+                        
+                        # Обновляем время последнего бэкапа для таблицы
+                        sheet_obj = db.query(Sheet).filter(Sheet.id == sheet_id).first()
+                        if sheet_obj:
+                            sheet_obj.last_backup = backup.created_at
+                            db.commit()
+                        
+                        logger.info(f"Бэкап для таблицы {sheet_name} сохранен в БД: {backup.id}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при сохранении бэкапа в БД: {str(e)}")
+                
+                results.append({
+                    "sheet_id": sheet_id,
+                    "sheet_name": sheet_name,
+                    "success": True,
+                    "backup_id": backup_result.filename,
+                    "storage_results": backup_result.storage_results
+                })
+            else:
+                results.append({
+                    "sheet_id": sheet_id,
+                    "sheet_name": sheet_name,
+                    "success": False,
+                    "error": "Не удалось создать бэкап"
+                })
+        
+        except Exception as e:
+            logger.error(f"Ошибка при создании бэкапа для таблицы {sheet.get('id')}: {str(e)}")
+            results.append({
+                "sheet_id": sheet.get("id"),
+                "sheet_name": sheet.get("name", "Неизвестная таблица"),
+                "success": False,
+                "error": str(e)
+            })
+    
+    return results
+
+# Переименовываем исходную функцию в backup_sheet_by_id и алиас для обратной совместимости
+backup_sheet = backup_sheet_by_id 

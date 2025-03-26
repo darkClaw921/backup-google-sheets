@@ -24,7 +24,6 @@ class Sheet(Base):
 
     # Отношения
     backups = relationship("Backup", back_populates="sheet", cascade="all, delete-orphan")
-    schedules = relationship("Schedule", back_populates="sheet", cascade="all, delete-orphan")
-
+    
     def __repr__(self):
         return f"<Sheet(id={self.id}, name={self.name}, spreadsheet_id={self.spreadsheet_id})>" 
