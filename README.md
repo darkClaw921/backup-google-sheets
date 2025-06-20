@@ -17,14 +17,14 @@ git clone https://github.com/yourusername/backup-google-sheets.git
 cd backup-google-sheets
 
 # Установка зависимостей с использованием uv
-uv pip install -r requirements.txt
+uv sync
 
 # Настройка переменных окружения
 cp .env.example .env
 # Отредактируйте .env файл, добавив свои учетные данные
 
 # Запуск приложения
-uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## Требования
