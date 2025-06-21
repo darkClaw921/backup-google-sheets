@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  backup-google-sheets:
+    build: .
+    container_name: backup-google-sheets
+    ports:
+      - "8000:8000"
+    volumes:
+      # Монтируем директории для данных
+      - ./backups:/app/backups
+      - ./credentials:/app/credentials
+      - ./data:/app/data
+      - ./sqlite:/app/sqlite
+    environment:
+      # Основные настройки приложения
+      - ENVIRONMENT=production
+      - DEBUG=false
+      # Настройки базы данных
+      - DATABASE_URL=sqlite:////app/sqlite/data/app.db
+      # Настройки Google API (нужно заполнить в .env)
+      - GOOGLE_CREDENTIALS_PATH=/app/credentials/service-account.json
+      # Настройки планировщика
+      - SCHEDULER_TIMEZONE=Europe/Moscow
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - backup-network
+
+networks:
+  backup-network:
+    driver: bridge 

@@ -84,6 +84,27 @@ async def integrations_page(request: Request):
     """
     return templates.TemplateResponse("integrations.html", {"request": request})
 
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint для мониторинга состояния приложения
+    """
+    try:
+        # Проверяем подключение к базе данных
+        db = next(get_db())
+        # Простой запрос для проверки БД
+        db.execute("SELECT 1")
+        db_status = "healthy"
+    except Exception as e:
+        db_status = f"unhealthy: {str(e)}"
+    
+    return {
+        "status": "healthy" if db_status == "healthy" else "unhealthy",
+        "database": db_status,
+        "version": settings.VERSION,
+        "app_name": settings.APP_NAME
+    }
+
 @app.on_event("startup")
 def startup_db_and_scheduler():
     """

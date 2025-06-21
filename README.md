@@ -27,6 +27,16 @@ cp .env.example .env
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### Docker
+
+```bash
+docker-compose build
+docker-compose up -d
+```
+
+
+
+
 ## Требования
 
 - Python 3.12+
